@@ -43,7 +43,7 @@ def main():
     )
     
     # Baseline lengths to test
-    baseline_lengths = [50, 100, 150, 200]  # meters
+    baseline_lengths = [50, 100, 150, 200, 250, 300, 350]  # meters
     
     # Frequency
     nu_0 = GAIA_RP_EFFECTIVE_FREQUENCY
@@ -60,8 +60,8 @@ def main():
     results = []
     
     print(f"\nCalculating Fisher matrices and visibilities...")
-    print(f"{'Star':<12} {'Baseline (m)':<12} {'F_nu (W/m²/Hz)':<15} {'|V|²':<15} {'sqrt(F^-1_rr)':<15}")
-    print("-" * 75)
+    print(f"{'Star':<12} {'Baseline (m)':<12} {'F_nu (W/m²/Hz)':<15} {'|V|²':<15} {'sqrt(F^-1_rr)':<15} {'σ_r/r':<15}")
+    print("-" * 90)
     
     for star_name, disk in star_disks.items():
         # Calculate specific flux (same for all baselines)
@@ -92,16 +92,26 @@ def main():
                     fisher_rr = 0.0
                     sqrt_inv_fisher_rr = np.inf
                 
+                # Get the radius from the UniformDisk object
+                radius = disk.radius  # angular radius in radians
+                
+                # Calculate sigma_r/r (relative uncertainty)
+                if radius > 0 and not np.isinf(sqrt_inv_fisher_rr):
+                    sigma_r_over_r = sqrt_inv_fisher_rr / radius
+                else:
+                    sigma_r_over_r = np.inf
+                
                 # Store results
                 results.append({
                     'Star': star_name,
                     'Baseline_m': baseline_length,
                     'F_nu': specific_flux,
                     'Visibility_squared': visibility_squared,
-                    'sqrt_inv_Fisher_rr': sqrt_inv_fisher_rr
+                    'sqrt_inv_Fisher_rr': sqrt_inv_fisher_rr,
+                    'sigma_r/r': sigma_r_over_r
                 })
                 
-                print(f"{star_name:<12} {baseline_length:<12} {specific_flux:<15.2e} {visibility_squared:<15.6f} {sqrt_inv_fisher_rr:<15.2e}")
+                print(f"{star_name:<12} {baseline_length:<12} {specific_flux:<15.2e} {visibility_squared:<15.6f} {sqrt_inv_fisher_rr:<15.2e} {sigma_r_over_r:<15.2e}")
                 
             except Exception as e:
                 print(f"{star_name:<12} {baseline_length:<12} ERROR: {str(e)}")
@@ -110,7 +120,8 @@ def main():
                     'Baseline_m': baseline_length,
                     'F_nu': specific_flux,
                     'Visibility_squared': np.nan,
-                    'sqrt_inv_Fisher_rr': np.nan
+                    'sqrt_inv_Fisher_rr': np.nan,
+                    'sigma_r/r': np.nan
                 })
     
     # Convert to DataFrame and save
@@ -136,6 +147,11 @@ def main():
     sqrt_inv_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='sqrt_inv_Fisher_rr')
     print(sqrt_inv_pivot.to_string(float_format='%.2e'))
     
+    # sigma_r/r table
+    print(f"\n\nσ_r/r - Relative parameter uncertainty:")
+    sigma_r_over_r_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='sigma_r/r')
+    print(sigma_r_over_r_pivot.to_string(float_format='%.2e'))
+    
     # Save to CSV
     output_file = 'fisher_matrix_results.csv'
     results_df.to_csv(output_file, index=False)
@@ -151,7 +167,7 @@ def main():
     best_baselines = results_df.loc[results_df.groupby('Star')['sqrt_inv_Fisher_rr'].idxmin()]
     for _, row in best_baselines.iterrows():
         if not np.isnan(row['sqrt_inv_Fisher_rr']):
-            print(f"  {row['Star']:<12}: {row['Baseline_m']:>3}m (F_nu = {row['F_nu']:.2e}, σ_r = {row['sqrt_inv_Fisher_rr']:.2e}, |V|² = {row['Visibility_squared']:.6f})")
+            print(f"  {row['Star']:<12}: {row['Baseline_m']:>3}m (F_nu = {row['F_nu']:.2e}, σ_r = {row['sqrt_inv_Fisher_rr']:.2e}, σ_r/r = {row['sigma_r/r']:.2e}, |V|² = {row['Visibility_squared']:.6f})")
     
     # Statistics by baseline
     print(f"\nParameter uncertainty statistics by baseline:")
