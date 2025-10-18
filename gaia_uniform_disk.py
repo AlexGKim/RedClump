@@ -18,6 +18,9 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional, Union
 import warnings
+import astropy.units as u
+from astropy.io       import fits
+
 
 # Import the g2 UniformDisk class
 import sys
@@ -31,12 +34,25 @@ SPEED_OF_LIGHT = 2.99792458e8  # m/s
 # Gaia RP photometric system constants
 GAIA_RP_EFFECTIVE_WAVELENGTH = 797e-9  # meters (797 nm)
 GAIA_RP_EFFECTIVE_FREQUENCY = SPEED_OF_LIGHT / GAIA_RP_EFFECTIVE_WAVELENGTH  # Hz
-GAIA_RP_ZERO_POINT_MAG = 25.1161  # magnitude
-GAIA_RP_ZERO_POINT_FLUX = 1.29e-9  # W m^-2 Hz^-1 (approximate)
+# GAIA_RP_ZERO_POINT_MAG = 25.1039837393  # magnitude from https://www.cosmos.esa.int/web/gaia/edr3-passbands
+# GAIA_RP_ZERO_POINT_FLUX = 1.29e-9  # W m^-2 Hz^-1 (approximate)
 
 # Unit conversion constants
 MAS_TO_RAD = np.pi / (180 * 3600 * 1000)  # milliarcseconds to radians
 
+
+with fits.open('alpha_lyr_mod_004.fits') as hdul:
+    data = hdul[1].data
+    lam = data['WAVELENGTH']  * u.AA
+    flux = data['FLUX']  * u.erg/(u.s * u.cm**2 * u.AA)
+
+fnu_array = flux.to(u.W/(u.m**2 * u.Hz),
+                    equivalencies=u.spectral_density(lam))
+
+VEGA_FLUX = np.interp(GAIA_RP_EFFECTIVE_WAVELENGTH*1e10, lam.value, fnu_array.value)
+
+
+# <Quantity [1.69e-09] erg / (Angstrom cm2)>
 
 def rp_magnitude_to_flux_density(rp_mag: Union[float, np.ndarray], 
                                 reference_frequency: Optional[float] = None) -> Union[float, np.ndarray]:
@@ -78,8 +94,10 @@ def rp_magnitude_to_flux_density(rp_mag: Union[float, np.ndarray],
     
     # Convert magnitude to flux density using standard relation
     # F_ν = F_ν,0 * 10^(-0.4 * (m - m_0))
-    flux_density = GAIA_RP_ZERO_POINT_FLUX * 10**(-0.4 * (rp_mag - GAIA_RP_ZERO_POINT_MAG))
-    
+    # flux_density = 3631e-26 * 10**(-0.4 * (rp_mag - GAIA_RP_ZERO_POINT_MAG)) # W⋅m−2⋅Hz−1
+
+    flux_density = VEGA_FLUX * 10**(-0.4 * rp_mag)
+   
     return flux_density
 
 
