@@ -17,7 +17,7 @@ from gaia_uniform_disk import (
     create_uniform_disk_from_gaia,
     GAIA_RP_EFFECTIVE_FREQUENCY
 )
-from g2.core import Observation, fisher_matrix
+from g2.core import Observation, fisher_matrix, inverse_noise
 
 def main():
     """Calculate Fisher matrix table for all stars."""
@@ -60,8 +60,8 @@ def main():
     results = []
     
     print(f"\nCalculating Fisher matrices and visibilities...")
-    print(f"{'Star':<12} {'Baseline (m)':<12} {'F_nu (W/m²/Hz)':<15} {'|V|²':<15} {'sqrt(F^-1_rr)':<15} {'σ_r/r':<15}")
-    print("-" * 90)
+    print(f"{'Star':<12} {'Baseline (m)':<12} {'F_nu (W/m²/Hz)':<15} {'|V|²':<15} {'1/inv_σ':<15} {'SNR':<15} {'sqrt(F^-1_rr)':<15} {'σ_r/r':<15}")
+    print("-" * 120)
     
     for star_name, disk in star_disks.items():
         # Calculate specific flux (same for all baselines)
@@ -88,9 +88,22 @@ def main():
                         sqrt_inv_fisher_rr = 1.0 / np.sqrt(fisher_rr)
                     else:
                         sqrt_inv_fisher_rr = np.inf
+                    
+                    # Calculate 1/inverse_sigma using core.inverse_noise
+                    inverse_sigma = inverse_noise(disk, nu_0, observation)
+                    one_over_inverse_sigma = 1.0 / inverse_sigma if inverse_sigma > 0 else 0.0
+                    
+                    # Calculate SNR = |V|² * inv_sigma
+                    snr = visibility_squared * inverse_sigma
                 else:
                     fisher_rr = 0.0
                     sqrt_inv_fisher_rr = np.inf
+                    # Calculate 1/inverse_sigma using core.inverse_noise even when Fisher matrix fails
+                    inverse_sigma = inverse_noise(disk, nu_0, observation)
+                    one_over_inverse_sigma = 1.0 / inverse_sigma if inverse_sigma > 0 else 0.0
+                    
+                    # Calculate SNR = |V|² * inv_sigma
+                    snr = visibility_squared * inverse_sigma if not np.isnan(visibility_squared) else np.nan
                 
                 # Get the radius from the UniformDisk object
                 radius = disk.radius  # angular radius in radians
@@ -107,11 +120,13 @@ def main():
                     'Baseline_m': baseline_length,
                     'F_nu': specific_flux,
                     'Visibility_squared': visibility_squared,
+                    '1/inverse_sigma': one_over_inverse_sigma,
+                    'SNR': snr,
                     'sqrt_inv_Fisher_rr': sqrt_inv_fisher_rr,
                     'sigma_r/r': sigma_r_over_r
                 })
                 
-                print(f"{star_name:<12} {baseline_length:<12} {specific_flux:<15.2e} {visibility_squared:<15.6f} {sqrt_inv_fisher_rr:<15.2e} {sigma_r_over_r:<15.2e}")
+                print(f"{star_name:<12} {baseline_length:<12} {specific_flux:<15.2e} {visibility_squared:<15.6f} {one_over_inverse_sigma:<15.2e} {snr:<15.2e} {sqrt_inv_fisher_rr:<15.2e} {sigma_r_over_r:<15.2e}")
                 
             except Exception as e:
                 print(f"{star_name:<12} {baseline_length:<12} ERROR: {str(e)}")
@@ -120,6 +135,8 @@ def main():
                     'Baseline_m': baseline_length,
                     'F_nu': specific_flux,
                     'Visibility_squared': np.nan,
+                    '1/inverse_sigma': np.nan,
+                    'SNR': np.nan,
                     'sqrt_inv_Fisher_rr': np.nan,
                     'sigma_r/r': np.nan
                 })
@@ -147,6 +164,16 @@ def main():
     sqrt_inv_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='sqrt_inv_Fisher_rr')
     print(sqrt_inv_pivot.to_string(float_format='%.2e'))
     
+    # 1/inverse_sigma table
+    print(f"\n\n1/inverse_sigma - sqrt(Fisher matrix element):")
+    one_over_inv_sigma_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='1/inverse_sigma')
+    print(one_over_inv_sigma_pivot.to_string(float_format='%.2e'))
+    
+    # SNR table
+    print(f"\n\nSNR - Signal-to-Noise Ratio (|V|² × inv_σ):")
+    snr_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='SNR')
+    print(snr_pivot.to_string(float_format='%.2e'))
+    
     # sigma_r/r table
     print(f"\n\nσ_r/r - Relative parameter uncertainty:")
     sigma_r_over_r_pivot = results_df.pivot(index='Star', columns='Baseline_m', values='sigma_r/r')
@@ -167,7 +194,7 @@ def main():
     best_baselines = results_df.loc[results_df.groupby('Star')['sqrt_inv_Fisher_rr'].idxmin()]
     for _, row in best_baselines.iterrows():
         if not np.isnan(row['sqrt_inv_Fisher_rr']):
-            print(f"  {row['Star']:<12}: {row['Baseline_m']:>3}m (F_nu = {row['F_nu']:.2e}, σ_r = {row['sqrt_inv_Fisher_rr']:.2e}, σ_r/r = {row['sigma_r/r']:.2e}, |V|² = {row['Visibility_squared']:.6f})")
+            print(f"  {row['Star']:<12}: {row['Baseline_m']:>3}m (F_nu = {row['F_nu']:.2e}, 1/inv_σ = {row['1/inverse_sigma']:.2e}, SNR = {row['SNR']:.2e}, σ_r = {row['sqrt_inv_Fisher_rr']:.2e}, σ_r/r = {row['sigma_r/r']:.2e}, |V|² = {row['Visibility_squared']:.6f})")
     
     # Statistics by baseline
     print(f"\nParameter uncertainty statistics by baseline:")
