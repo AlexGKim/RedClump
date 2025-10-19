@@ -435,7 +435,7 @@ def create_uniform_disk_from_gaia(df: pd.DataFrame,
             # Calculate distance for reference (not used in UniformDisk but useful for validation)
             distance_pc = parallax_to_distance(parallax_mas)
             
-            # Create UniformDisk object with frequency-dependent flux densities
+            # Create UniformDisk object with frequency-dependent flux densities using array constructors
             uniform_disk = UniformDisk(flux_density=flux_densities, frequencies=frequencies, radius=angular_radius)
             
             # Store in dictionary
