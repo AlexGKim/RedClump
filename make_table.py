@@ -9,6 +9,7 @@ from astroquery.gaia import Gaia
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 import numpy
+from gaia_zeropoint import VEGA_FLUX_G, VEGA_FLUX_BP, VEGA_FLUX_RP
 
 
 def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
@@ -143,6 +144,7 @@ def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
     # Save the merged DataFrame to CSV.
     df_merged.to_csv(filename, index=False)
     print(f"DataFrame saved to '{filename}'.")
+    return df_merged
 
 
 def load_dataframe(filename='extended_data_table_2.csv'):
@@ -163,35 +165,86 @@ def load_dataframe(filename='extended_data_table_2.csv'):
         print(f"Error: '{filename}' not found.")
         return None
 
-def main():
 
+
+def create_and_save_flux_density_table(filename='extended_data_table_2.csv', output_filename='flux_density_table.csv'):
+    """
+    Creates a table with Star names and F_nu flux densities for the three Gaia bands.
+    
+    Uses the formula: flux_density = VEGA_FLUX * 10**(-0.4 * magnitude)
+    where VEGA_FLUX values are taken from gaia_zeropoint.py
+    
+    Parameters:
+        filename (str): The name of the CSV file to load star data from.
+    
+    Returns:
+        pd.DataFrame: DataFrame with columns ['Star', 'F_nu_G', 'F_nu_BP', 'F_nu_RP']
+                     Flux densities are in units of W/(m^2 * Hz)
+    """
+    # Load the existing dataframe with Gaia photometry
+    df = load_dataframe(filename)
+    
+    if df is None:
+        print("Error: Could not load dataframe")
+        return None
+    
+    # Calculate flux densities using the formula: flux_density = VEGA_FLUX * 10**(-0.4 * magnitude)
+    # For G band
+    df['F_nu_G'] = VEGA_FLUX_G * 10**(-0.4 * df['phot_g_mean_mag'])
+    
+    # For BP band
+    df['F_nu_BP'] = VEGA_FLUX_BP * 10**(-0.4 * df['phot_bp_mean_mag'])
+    
+    # For RP band
+    df['F_nu_RP'] = VEGA_FLUX_RP * 10**(-0.4 * df['phot_rp_mean_mag'])
+    
+    # Create a new dataframe with only the required columns
+    flux_table = df[['Star', 'F_nu_G', 'F_nu_BP', 'F_nu_RP']].copy()
+    
+    print("Flux density table (units: W/(m^2 * Hz)):")
+    print(flux_table.to_string(index=False))
+
+    flux_table.to_csv(output_filename, index=False)
+    print(f"Flux density table saved to '{output_filename}'.")
+    
+    return flux_table    
+    return flux_table
+
+# def main():
+    # Test the new flux density table function
+
+    
     # Load the DataFrame from the saved file
-    df = load_dataframe()    
-    df['distance'] = 1000 / df['parallax'] # parsec
+    # df = load_dataframe()
+    # df['distance'] = 1000 / df['parallax'] # parsec
 
-    print(df[['Star', 'phot_rp_mean_mag', 'distance', 'LD']].to_string(index=False))
-    fwe
-    # df['M_rp'] = df['phot_rp_mean_mag'] - 5*numpy.log10(df['distance']/10)
-    df['SB_rp'] = df['phot_rp_mean_mag'] + 2.5 * numpy.log10(numpy.pi * (df['LD']/2)**2)
-    # plt.scatter(df['distance'], df['SB_rp'] )
-    # plt.xlabel('distance (pc)')
-    # plt.ylabel('SB_rp')
+    # print(df[['Star', 'phot_rp_mean_mag', 'distance', 'LD']].to_string(index=False))
+    # # fwe  # Removed this line as it seems to be a typo
+    # # df['M_rp'] = df['phot_rp_mean_mag'] - 5*numpy.log10(df['distance']/10)
+    # df['SB_rp'] = df['phot_rp_mean_mag'] + 2.5 * numpy.log10(numpy.pi * (df['LD']/2)**2)
+    # # plt.scatter(df['distance'], df['SB_rp'] )
+    # # plt.xlabel('distance (pc)')
+    # # plt.ylabel('SB_rp')
+    # # plt.show()
+
+    # plt.scatter(df['distance'], df['distance'] * df['LD'])
     # plt.show()
 
-    plt.scatter(df['distance'], df['distance'] * df['LD'])
-    plt.show()
-
-
-    plt.hist(df["LD"])
-    plt.xlabel("Angular Diameter (mas)")
-    plt.show()
+    # plt.hist(df["LD"])
+    # plt.xlabel("Angular Diameter (mas)")
+    # plt.show()
 
 # Example usage:
 if __name__ == "__main__":
 
     # Create and save the DataFrame
-    # create_and_save_dataframe_gaia()
+    extended_table = create_and_save_dataframe_gaia()
 
-    main()
+    # Example: Create flux density table
+    print("\n" + "="*50)
+    print("Creating flux density table...")
+    print("="*50)
+    flux_table = create_and_save_flux_density_table()
+    
 
 

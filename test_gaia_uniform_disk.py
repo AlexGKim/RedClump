@@ -14,9 +14,13 @@ sys.path.append('/Users/akim/Projects/g2')
 from gaia_uniform_disk import (
     create_uniform_disk_from_gaia,
     get_star_properties,
+    g_magnitude_to_flux_density,
+    bp_magnitude_to_flux_density,
     rp_magnitude_to_flux_density,
     angular_diameter_to_radius,
     parallax_to_distance,
+    GAIA_G_EFFECTIVE_FREQUENCY,
+    GAIA_BP_EFFECTIVE_FREQUENCY,
     GAIA_RP_EFFECTIVE_FREQUENCY
 )
 
@@ -26,13 +30,20 @@ def test_individual_conversions():
     print("-" * 50)
     
     # Test data from HD 360 (first row of the CSV)
+    g_mag = 5.7160897
+    bp_mag = 6.227563
     rp_mag = 5.044772
     angular_diameter_mas = 0.906
     parallax_mas = 9.011463712285309
     
-    # Test magnitude to flux conversion
-    flux = rp_magnitude_to_flux_density(rp_mag)
-    print(f"RP magnitude {rp_mag} → Flux density: {flux:.2e} W/m²/Hz")
+    # Test magnitude to flux conversions for all bands
+    flux_g = g_magnitude_to_flux_density(g_mag)
+    flux_bp = bp_magnitude_to_flux_density(bp_mag)
+    flux_rp = rp_magnitude_to_flux_density(rp_mag)
+    
+    print(f"G magnitude {g_mag} → Flux density: {flux_g:.2e} W/m²/Hz")
+    print(f"BP magnitude {bp_mag} → Flux density: {flux_bp:.2e} W/m²/Hz")
+    print(f"RP magnitude {rp_mag} → Flux density: {flux_rp:.2e} W/m²/Hz")
     
     # Test angular diameter to radius conversion
     radius = angular_diameter_to_radius(angular_diameter_mas)
@@ -56,7 +67,7 @@ def test_dataframe_loading():
         print(f"✓ Successfully loaded CSV with {len(df)} rows")
         
         # Check required columns
-        required_cols = ['Star', 'phot_rp_mean_mag', 'parallax', 'LD']
+        required_cols = ['Star', 'phot_g_mean_mag', 'phot_bp_mean_mag', 'phot_rp_mean_mag', 'parallax', 'LD']
         missing_cols = [col for col in required_cols if col not in df.columns]
         
         if missing_cols:
@@ -94,12 +105,21 @@ def test_uniform_disk_creation(df):
         
         for star_name in test_stars:
             if star_name in star_disks:
-                props = get_star_properties(star_disks, star_name)
                 print(f"\n{star_name}:")
-                print(f"  Flux density: {props['flux_density']:.2e} W/m²/Hz")
+                
+                # Show properties at different frequencies
+                for band_name, frequency in [('G', GAIA_G_EFFECTIVE_FREQUENCY),
+                                            ('BP', GAIA_BP_EFFECTIVE_FREQUENCY),
+                                            ('RP', GAIA_RP_EFFECTIVE_FREQUENCY)]:
+                    props = get_star_properties(star_disks, star_name, frequency)
+                    print(f"  {band_name} band:")
+                    print(f"    Flux density: {props['flux_density']:.2e} W/m²/Hz")
+                    print(f"    Surface brightness: {props['surface_brightness']:.2e} W/m²/Hz/sr")
+                
+                # Show geometric properties (frequency-independent)
+                props = get_star_properties(star_disks, star_name)
                 print(f"  Angular radius: {props['angular_radius_rad']:.2e} rad")
                 print(f"  Angular diameter: {props['angular_diameter_mas']:.3f} mas")
-                print(f"  Surface brightness: {props['surface_brightness']:.2e} W/m²/Hz/sr")
             else:
                 print(f"✗ {star_name} not found in results")
         
@@ -129,14 +149,18 @@ def test_visibility_calculation(star_disks):
             ([100.0, 100.0, 0.0], "100m diagonal")
         ]
         
-        nu_0 = GAIA_RP_EFFECTIVE_FREQUENCY
+        print(f"Visibility calculations for HD 360:")
         
-        print(f"Visibility calculations for HD 360 at {nu_0:.2e} Hz:")
-        
-        for baseline_vec, description in baselines:
-            baseline = np.array(baseline_vec)
-            visibility = hd_360_disk.V(nu_0, baseline)
-            print(f"  {description:15}: |V| = {abs(visibility):.4f}, phase = {np.angle(visibility):.3f} rad")
+        # Test at different frequencies
+        for band_name, nu_0 in [('G', GAIA_G_EFFECTIVE_FREQUENCY),
+                               ('BP', GAIA_BP_EFFECTIVE_FREQUENCY),
+                               ('RP', GAIA_RP_EFFECTIVE_FREQUENCY)]:
+            print(f"\n  {band_name} band ({nu_0:.2e} Hz):")
+            
+            for baseline_vec, description in baselines:
+                baseline = np.array(baseline_vec)
+                visibility = hd_360_disk.V(nu_0, baseline)
+                print(f"    {description:15}: |V| = {abs(visibility):.4f}, phase = {np.angle(visibility):.3f} rad")
         
         print("✓ Visibility calculations completed successfully")
         
