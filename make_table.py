@@ -9,7 +9,9 @@ from astroquery.gaia import Gaia
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 import numpy
-from gaia_zeropoint import VEGA_FLUX_G, VEGA_FLUX_BP, VEGA_FLUX_RP
+from gaia_zeropoint import (VEGA_FLUX_G, VEGA_FLUX_BP, VEGA_FLUX_RP,
+                           GAIA_G_EFFECTIVE_WAVELENGTH, GAIA_BP_EFFECTIVE_WAVELENGTH, GAIA_RP_EFFECTIVE_WAVELENGTH,
+                           GAIA_G_EFFECTIVE_FREQUENCY, GAIA_BP_EFFECTIVE_FREQUENCY, GAIA_RP_EFFECTIVE_FREQUENCY)
 
 
 def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
@@ -233,18 +235,22 @@ def create_and_save_flux_density_table(filename='extended_data_table_2.csv', out
     # plt.hist(df["LD"])
     # plt.xlabel("Angular Diameter (mas)")
     # plt.show()
-
 # Example usage:
 if __name__ == "__main__":
 
     # Create and save the DataFrame
-    extended_table = create_and_save_dataframe_gaia()
+    # extended_table = create_and_save_dataframe_gaia()
 
     # Example: Create flux density table
-    print("\n" + "="*50)
-    print("Creating flux density table...")
-    print("="*50)
-    flux_table = create_and_save_flux_density_table()
+    # print("\n" + "="*50)
+    # print("Creating flux density table...")
+    # print("="*50)
+    # flux_table = create_and_save_flux_density_table()
     
+    # Create baseline tables
+    print("\n" + "="*50)
+    print("Creating baseline tables...")
+    print("="*50)
+    create_and_save_baseline_tables()
 
 
