@@ -118,28 +118,7 @@ def create_radial_grid_from_satlas(file_path: str,
     
     # Extract radius data and convert from mas to radians (angular coordinates)
     radius_mas = data['r(mas)'].values.astype(np.float64)  # Ensure float64 precision
-    
-    # Add buffer of zeros that extends 5 times further than the input data
-    max_radius_mas = radius_mas.max()
-    buffer_max_radius_mas = 5.0 * max_radius_mas
-    
-    # Create extended radius array with buffer
-    # Add points from max_radius to buffer_max_radius
-    n_original_points = len(radius_mas)
-    # Create buffer points - use similar spacing as the original data
-    if n_original_points > 1:
-        original_spacing = (radius_mas[-1] - radius_mas[-2]) if radius_mas[-1] > radius_mas[-2] else (radius_mas[1] - radius_mas[0])
-    else:
-        original_spacing = max_radius_mas * 0.01  # fallback spacing
-    
-    # Generate buffer radius points
-    buffer_start = max_radius_mas + original_spacing
-    n_buffer_points = int((buffer_max_radius_mas - buffer_start) / original_spacing) + 1
-    buffer_radius_mas = np.linspace(buffer_start, buffer_max_radius_mas, n_buffer_points)
-    
-    # Combine original and buffer radius arrays
-    extended_radius_mas = np.concatenate([radius_mas, buffer_radius_mas])
-    p_rays = extended_radius_mas * MAS_TO_RAD  # Convert to radians
+    p_rays = radius_mas * MAS_TO_RAD  # Convert to radians
     p_rays = p_rays.astype(np.float64)  # Ensure float64 precision
     
     # Create wavelength grid
@@ -147,28 +126,20 @@ def create_radial_grid_from_satlas(file_path: str,
     
     # Create intensity array: shape (n_wavelengths, n_radial_points)
     n_wavelengths = len(wavelengths)
-    n_total_points = len(extended_radius_mas)
-    I_nu_p = np.zeros((n_wavelengths, n_total_points))
+    n_radial_points = len(radius_mas)
+    I_nu_p = np.zeros((n_wavelengths, n_radial_points))
     
-    # Fill original data points
     for i, band in enumerate(SATLAS_BANDS.keys()):
         col = SATLAS_BANDS[band]['column']
-        I_nu_p[i, :n_original_points] = data[col].values.astype(np.float64)  # Ensure float64 precision
-        # Buffer points remain zero (already initialized to zero)
+        I_nu_p[i, :] = data[col].values.astype(np.float64)  # Ensure float64 precision
     
     # Debug: Check radius range
-    original_max_radius_mas = radius_mas.max()
-    extended_max_radius_mas = extended_radius_mas.max()
-    original_max_radius_rad = original_max_radius_mas * MAS_TO_RAD
-    extended_max_radius_rad = extended_max_radius_mas * MAS_TO_RAD
+    max_radius_mas = radius_mas.max()
+    max_radius_rad = max_radius_mas * MAS_TO_RAD
     
     print(f"Debug SATLAS radius info:")
-    print(f"  Original max radius: {original_max_radius_mas:.3f} mas")
-    print(f"  Extended max radius: {extended_max_radius_mas:.3f} mas (5x buffer)")
-    print(f"  Original max radius: {original_max_radius_rad:.2e} rad")
-    print(f"  Extended max radius: {extended_max_radius_rad:.2e} rad")
-    print(f"  Buffer points added: {n_buffer_points}")
-    print(f"  Total points: {n_original_points} + {n_buffer_points} = {n_total_points}")
+    print(f"  Max radius: {max_radius_mas:.3f} mas")
+    print(f"  Max radius: {max_radius_rad:.2e} rad")
     print(f"  Size parameter: {s}")
     
     # Create RadialGrid2 object with specified size parameter
