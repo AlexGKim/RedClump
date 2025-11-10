@@ -163,20 +163,20 @@ def main():
     df = pd.read_csv('extended_data_table_2.csv')
     print(f"✓ Loaded {len(df)} stars")
     
-    # Select HD 360 for plotting
-    star_name = 'HD 360'
-    if star_name not in df['Star'].values:
-        print(f"Error: {star_name} not found in the data")
-        available_stars = df['Star'].tolist()
-        print(f"Available stars: {available_stars}")
-        return
-    print(f"Selected star: {star_name}")
+    # # Select HD 360 for plotting
+    # star_name = 'HD 360'
+    # if star_name not in df['Star'].values:
+    #     print(f"Error: {star_name} not found in the data")
+    #     available_stars = df['Star'].tolist()
+    #     print(f"Available stars: {available_stars}")
+    #     return
+    # print(f"Selected star: {star_name}")
     
     # Create UniformDisk objects
     print("Creating UniformDisk objects...")
     star_disks = create_uniform_disk_from_gaia(df)
-    star_disk = star_disks[star_name]
-    print(f"✓ Created UniformDisk object for {star_name}")
+    # star_disk = star_disks[star_name]
+    # print(f"✓ Created UniformDisk object for {star_name}")
     
     # Observation parameters (same as fisher_matrix_table.py)
     observation = Observation(
@@ -202,36 +202,41 @@ def main():
     print(f"  Wavelengths: {[w*1e9 for w in wavelengths]} nm")
     print(f"  Baseline range: {baseline_lengths[0]}-{baseline_lengths[-1]} m ({len(baseline_lengths)} points)")
     
-    # Calculate parameters for the selected star
-    print(f"\nCalculating parameters for {star_name}...")
-    results = calculate_parameters_for_star(
-        star_name, star_disk, observation, baseline_lengths, 
-        wavelengths, frequencies, band_names
-    )
+    for star_name in star_disks.keys():  # Loop over selected star(s)
+        # Calculate parameters for the selected star
+        print(f"\nCalculating parameters for {star_name}...")
+        results = calculate_parameters_for_star(
+            star_name, star_disks[star_name], observation, baseline_lengths, 
+            wavelengths, frequencies, band_names
+        )
     
-    # Print summary of results
-    print(f"\nResults summary:")
-    for result in results:
-        print(f"  {result['band_name']} Band ({result['wavelength_nm']:.1f} nm): "
-              f"{len(result['baselines'])} valid points")
-        print(f"    |V|² range: {result['visibility_squared'].min():.2e} - {result['visibility_squared'].max():.2e}")
-        print(f"    sigma_lnr: {result['sqrt_inv_fisher'].min():.2e} - {result['sqrt_inv_fisher'].max():.2e}")
-    
-    # Create plots
-    print(f"\nCreating plots...")
-    fig = plot_star_parameters(star_name, results, observation)
-    
-    # Save plot
-    output_filename = f'plot_one_{star_name.replace(" ", "_")}.pdf'
-    fig.savefig(output_filename, bbox_inches='tight', dpi=300)
-    plt.close(fig)
-    
-    print(f"✓ Plot saved to {output_filename}")
-    
-    print(f"\n" + "=" * 60)
-    print("Single star plotting completed successfully!")
-    print(f"Generated plot for {star_name} saved to {output_filename}")
-    print("=" * 60)
+        # Print summary of results
+        print(f"\nResults summary:")
+        for result in results:
+            print(f"  {result['band_name']} Band ({result['wavelength_nm']:.1f} nm): "
+                f"{len(result['baselines'])} valid points")
+            print(f"    |V|² range: {result['visibility_squared'].min():.2e} - {result['visibility_squared'].max():.2e}")
+            print(f"    sigma_lnr: {result['sqrt_inv_fisher'].min():.2e} - {result['sqrt_inv_fisher'].max():.2e}")
+            if not np.isnan(result['inverse_noise']):
+                print(f"    Inverse noise: {result['inverse_noise']:.2e}")
+            else:
+                print(f"    Inverse noise: N/A")
+        
+        # Create plots
+        print(f"\nCreating plots...")
+        fig = plot_star_parameters(star_name, results, observation)
+        
+        # Save plot
+        output_filename = f'plot_one_{star_name.replace(" ", "_")}.pdf'
+        fig.savefig(output_filename, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+        
+        print(f"✓ Plot saved to {output_filename}")
+        
+        print(f"\n" + "=" * 60)
+        print("Single star plotting completed successfully!")
+        print(f"Generated plot for {star_name} saved to {output_filename}")
+        print("=" * 60)
 
 if __name__ == "__main__":
     main()
