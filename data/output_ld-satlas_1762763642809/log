@@ -1,0 +1,45 @@
+            Launching Python command...
+Starting image...
+image.py is being imported into another module
+Starting table...
+table.py is being imported into another module
+/var/local/amhra/amhra/resources/limb_darkening/Red_giants/spheric
+ t_sel= 4800.0, g_sel= 2.5, m_sel= 1.0
+Model file chosen: ld_satlas_surface.2t4800g250m10.dat
+Model file chosen: ld_satlas_surface.2t4800g250m10.dat
+ang_diam_mas = 0.906 mas
+Radius = 9.312 Rsun ; distance = 95.594 pc
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_B.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_B_image.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_V.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_V_image.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_R.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_R_image.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_I.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_I_image.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_H.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_H_image.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_K.fits
+Creating fits file: /tmp/amhra11026340157730486439/data/ld_satlas_surface.2t4800g250m10_Ir_K_image.fits
+Copy PDF file to results directory...
+Zip data files...
+  adding: ld_satlas_surface.2t4800g250m10_Ir_H.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_K.txt (deflated 68%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_K_image.fits (deflated 56%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_H_image.fits (deflated 56%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_V.txt (deflated 67%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt (deflated 68%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_all_bands.pdf (deflated 30%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_I_image.fits (deflated 55%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_V.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_I.txt (deflated 67%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_I.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_B.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_K.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_R_image.fits (deflated 55%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_V_image.fits (deflated 55%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_R.fits (deflated 46%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_H.txt (deflated 67%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_B_image.fits (deflated 55%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_B.txt (deflated 67%)
+  adding: ld_satlas_surface.2t4800g250m10_Ir_R.txt (deflated 67%)
