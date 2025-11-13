@@ -15,6 +15,8 @@ import sys
 sys.path.append('/Users/akim/Projects/g2')
 
 from gaia_uniform_disk import create_uniform_disk_from_gaia
+from gaia_satlas import create_radial_grid_from_satlas, get_radial_grid_properties
+
 from gaia_zeropoint import (
     GAIA_G_EFFECTIVE_WAVELENGTH,
     GAIA_BP_EFFECTIVE_WAVELENGTH,
@@ -175,6 +177,13 @@ def main():
     # Create UniformDisk objects
     print("Creating UniformDisk objects...")
     star_disks = create_uniform_disk_from_gaia(df)
+
+
+       # Path to SATLAS data file
+    satlas_file = 'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt'
+    radial_grid = create_radial_grid_from_satlas(satlas_file)
+
+
     # star_disk = star_disks[star_name]
     # print(f"✓ Created UniformDisk object for {star_name}")
     
@@ -209,7 +218,12 @@ def main():
             star_name, star_disks[star_name], observation, baseline_lengths, 
             wavelengths, frequencies, band_names
         )
-    
+
+        results_radial = calculate_parameters_for_star(
+            star_name, radial_grid, observation, baseline_lengths, 
+            wavelengths, frequencies, band_names
+        )
+
         # Print summary of results
         print(f"\nResults summary:")
         for result in results:
@@ -225,11 +239,18 @@ def main():
         # Create plots
         print(f"\nCreating plots...")
         fig = plot_star_parameters(star_name, results, observation)
-        
+
         # Save plot
         output_filename = f'plot_one_{star_name.replace(" ", "_")}.pdf'
         fig.savefig(output_filename, bbox_inches='tight', dpi=300)
+
+        output_filename = f'plot_one_{star_name.replace(" ", "_radial_")}.pdf'
+        fig_radial = plot_star_parameters(star_name, results_radial, observation)
+        fig_radial.savefig(output_filename, bbox_inches='tight', dpi=300)
+
         plt.close(fig)
+
+
         
         print(f"✓ Plot saved to {output_filename}")
         
@@ -237,6 +258,7 @@ def main():
         print("Single star plotting completed successfully!")
         print(f"Generated plot for {star_name} saved to {output_filename}")
         print("=" * 60)
+        wer
 
 if __name__ == "__main__":
     main()
