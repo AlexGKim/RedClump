@@ -238,13 +238,17 @@ def get_radial_grid_properties(radial_grid: RadialGrid2) -> Dict[str, any]:
 def create_radial_grid_from_gaia(df: pd.DataFrame,
                                  satlas_file: str,
                                  star_name_col: str = 'Star',
+                                 g_mag_col: str = 'phot_g_mean_mag',
+                                 bp_mag_col: str = 'phot_bp_mean_mag',
+                                 rp_mag_col: str = 'phot_rp_mean_mag',
                                  s: float = 1.0) -> Dict[str, RadialGrid2]:
     """
     Create RadialGrid2 objects from Gaia data using SATLAS limb-darkening profiles.
     
     This function creates RadialGrid2 objects for multiple stars from a Gaia DataFrame,
-    using SATLAS limb-darkening data. Each star gets the same SATLAS profile but can
-    be scaled differently based on the size parameter.
+    using SATLAS limb-darkening data. Each star gets absolute intensities calculated
+    from Gaia magnitudes, normalized such that specific_flux matches the star's
+    actual flux density.
     
     Parameters
     ----------
@@ -254,6 +258,12 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
         Path to the SATLAS data file containing limb-darkening profiles.
     star_name_col : str, default 'Star'
         Name of the column containing star identifiers.
+    g_mag_col : str, default 'phot_g_mean_mag'
+        Name of the column containing Gaia G magnitudes.
+    bp_mag_col : str, default 'phot_bp_mean_mag'
+        Name of the column containing Gaia BP magnitudes.
+    rp_mag_col : str, default 'phot_rp_mean_mag'
+        Name of the column containing Gaia RP magnitudes.
     s : float, default 1.0
         Size parameter for RadialGrid2 objects.
         
@@ -261,7 +271,8 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
     -------
     star_grids : dict
         Dictionary mapping star names to RadialGrid2 objects.
-        Keys are star names (str), values are RadialGrid2 instances.
+        Keys are star names (str), values are RadialGrid2 instances with
+        absolute intensities.
         
     Raises
     ------
@@ -274,11 +285,13 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
     -----
     The function performs the following operations:
     1. Validates the input DataFrame
-    2. Loads SATLAS limb-darkening data once
-    3. Creates a RadialGrid2 object for each star in the DataFrame
-    4. All stars use the same SATLAS profile with the specified size parameter
+    2. Loads SATLAS limb-darkening data once (normalized profiles)
+    3. For each star:
+       - Calculates absolute flux densities at SATLAS wavelengths from Gaia magnitudes
+       - Scales the normalized SATLAS profiles to match the star's flux densities
+       - Creates a RadialGrid2 object with absolute intensities
     
-    Rows with NaN values in the star name column are skipped with a warning.
+    Rows with NaN values in required columns are skipped with a warning.
     
     Examples
     --------
@@ -375,11 +388,54 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
             skipped_stars.append(f"Row {idx}")
             continue
         
+        # Check for required magnitude columns
+        required_values = [row[g_mag_col], row[bp_mag_col], row[rp_mag_col]]
+        if any(pd.isna(val) for val in required_values):
+            skipped_stars.append(star_name)
+            continue
+        
         try:
-            # Create RadialGrid2 object with specified size parameter
+            # Calculate absolute flux densities for this star at SATLAS wavelengths
+            star_flux_densities = calculate_star_intensity_at_satlas_wavelengths(
+                row, g_mag_col, bp_mag_col, rp_mag_col
+            )
+            
+            # Create absolute intensity array by scaling normalized profiles
+            # The normalized profile I/I0 needs to be scaled such that when integrated
+            # over the disk, it gives the correct specific flux
+            I_nu_p_absolute = np.zeros((n_wavelengths, n_radial_points))
+            
+            for i in range(n_wavelengths):
+                # First, create a temporary RadialGrid2 with the normalized profile
+                # to calculate what the integrated flux would be
+                I_temp = np.zeros((1, n_radial_points))
+                I_temp[0, :] = I_nu_p[i, :]
+                
+                temp_grid = RadialGrid2(
+                    lambdas=np.array([wavelengths[i]]),
+                    I_nu_p=I_temp,
+                    p_rays=p_rays,
+                    s=s
+                )
+                
+                # Calculate the specific flux for the normalized profile
+                wavelength_m = wavelengths[i] * 1e-10
+                frequency = SPEED_OF_LIGHT / wavelength_m
+                normalized_flux = temp_grid.specific_flux(frequency)
+                
+                # Scale factor to match the star's actual flux density
+                if normalized_flux > 0:
+                    scale_factor = star_flux_densities[i] / normalized_flux
+                else:
+                    scale_factor = star_flux_densities[i]
+                
+                # Apply the scale factor to get absolute intensities
+                I_nu_p_absolute[i, :] = scale_factor * I_nu_p[i, :]
+            
+            # Create RadialGrid2 object with absolute intensities
             radial_grid = RadialGrid2(
                 lambdas=wavelengths,
-                I_nu_p=I_nu_p,
+                I_nu_p=I_nu_p_absolute,
                 p_rays=p_rays,
                 s=s
             )
