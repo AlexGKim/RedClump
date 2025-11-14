@@ -235,6 +235,174 @@ def get_radial_grid_properties(radial_grid: RadialGrid2) -> Dict[str, any]:
     return properties
 
 
+def create_radial_grid_from_gaia(df: pd.DataFrame,
+                                 satlas_file: str,
+                                 star_name_col: str = 'Star',
+                                 s: float = 1.0) -> Dict[str, RadialGrid2]:
+    """
+    Create RadialGrid2 objects from Gaia data using SATLAS limb-darkening profiles.
+    
+    This function creates RadialGrid2 objects for multiple stars from a Gaia DataFrame,
+    using SATLAS limb-darkening data. Each star gets the same SATLAS profile but can
+    be scaled differently based on the size parameter.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing stellar data with Gaia measurements.
+    satlas_file : str
+        Path to the SATLAS data file containing limb-darkening profiles.
+    star_name_col : str, default 'Star'
+        Name of the column containing star identifiers.
+    s : float, default 1.0
+        Size parameter for RadialGrid2 objects.
+        
+    Returns
+    -------
+    star_grids : dict
+        Dictionary mapping star names to RadialGrid2 objects.
+        Keys are star names (str), values are RadialGrid2 instances.
+        
+    Raises
+    ------
+    ValueError
+        If DataFrame is invalid or SATLAS file cannot be loaded.
+    TypeError
+        If input is not a pandas DataFrame.
+        
+    Notes
+    -----
+    The function performs the following operations:
+    1. Validates the input DataFrame
+    2. Loads SATLAS limb-darkening data once
+    3. Creates a RadialGrid2 object for each star in the DataFrame
+    4. All stars use the same SATLAS profile with the specified size parameter
+    
+    Rows with NaN values in the star name column are skipped with a warning.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df = pd.read_csv('extended_data_table_2.csv')
+    >>> satlas_file = 'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt'
+    >>> star_grids = create_radial_grid_from_gaia(df, satlas_file)
+    >>>
+    >>> # Access specific star
+    >>> hd_360 = star_grids['HD 360']
+    >>> print(f"HD 360 wavelength range: {hd_360.get_spectrum_info()['wavelength_range_angstrom']}")
+    >>>
+    >>> # Calculate visibility
+    >>> import numpy as np
+    >>> baseline = np.array([100.0, 0.0, 0.0])  # 100m E-W baseline
+    >>> frequency = SPEED_OF_LIGHT / (5510e-10)  # V band frequency
+    >>> visibility = hd_360.V(frequency, baseline)
+    >>> print(f"Visibility: {abs(visibility):.3f}")
+    """
+    # Validate input DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Input must be a pandas DataFrame")
+    
+    if df.empty:
+        raise ValueError("DataFrame is empty")
+    
+    if star_name_col not in df.columns:
+        raise ValueError(f"Star name column '{star_name_col}' not found in DataFrame")
+    
+    # Check for any valid data in star name column
+    if df[star_name_col].isna().all():
+        raise ValueError(f"Column '{star_name_col}' contains no valid data")
+    
+    # Load SATLAS data once (will be reused for all stars)
+    try:
+        # Load the data file, skipping the header line
+        satlas_data = pd.read_csv(satlas_file, sep=r'\s+', comment='#')
+        
+        # Set proper column names if not already set
+        expected_columns = ['r(mas)', 'I/I0_B', 'I/I0_V', 'I/I0_R', 'I/I0_I', 'I/I0_H', 'I/I0_K']
+        if len(satlas_data.columns) == len(expected_columns):
+            satlas_data.columns = expected_columns
+        
+    except Exception as e:
+        raise ValueError(f"Error loading SATLAS data from {satlas_file}: {str(e)}")
+    
+    # Validate the loaded SATLAS data
+    required_columns = ['r(mas)'] + [SATLAS_BANDS[band]['column'] for band in SATLAS_BANDS.keys()]
+    missing_columns = [col for col in required_columns if col not in satlas_data.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns in SATLAS file: {missing_columns}")
+    
+    if satlas_data.empty:
+        raise ValueError("SATLAS data is empty")
+    
+    # Check for negative radii
+    if (satlas_data['r(mas)'] < 0).any():
+        raise ValueError("Negative radii found in SATLAS data")
+    
+    # Check for invalid intensity values
+    for band in SATLAS_BANDS.keys():
+        col = SATLAS_BANDS[band]['column']
+        if (satlas_data[col] < 0).any():
+            warnings.warn(f"Negative intensity values found in {band} band")
+        if (satlas_data[col] > 1.5).any():
+            warnings.warn(f"Intensity values > 1.5 found in {band} band (expected normalized values)")
+    
+    # Extract radius data and convert from mas to radians (angular coordinates)
+    radius_mas = satlas_data['r(mas)'].values.astype(np.float64)
+    p_rays = radius_mas * MAS_TO_RAD
+    p_rays = p_rays.astype(np.float64)
+    
+    # Create wavelength grid
+    wavelengths = np.array([SATLAS_BANDS[band]['wavelength'] for band in SATLAS_BANDS.keys()])
+    
+    # Create intensity array: shape (n_wavelengths, n_radial_points)
+    n_wavelengths = len(wavelengths)
+    n_radial_points = len(radius_mas)
+    I_nu_p = np.zeros((n_wavelengths, n_radial_points))
+    
+    for i, band in enumerate(SATLAS_BANDS.keys()):
+        col = SATLAS_BANDS[band]['column']
+        I_nu_p[i, :] = satlas_data[col].values.astype(np.float64)
+    
+    # Create RadialGrid2 objects for each star
+    star_grids = {}
+    skipped_stars = []
+    
+    for idx, row in df.iterrows():
+        star_name = row[star_name_col]
+        
+        # Check for missing star name
+        if pd.isna(star_name):
+            skipped_stars.append(f"Row {idx}")
+            continue
+        
+        try:
+            # Create RadialGrid2 object with specified size parameter
+            radial_grid = RadialGrid2(
+                lambdas=wavelengths,
+                I_nu_p=I_nu_p,
+                p_rays=p_rays,
+                s=s
+            )
+            
+            # Store in dictionary
+            star_grids[star_name] = radial_grid
+            
+        except Exception as e:
+            warnings.warn(f"Error processing {star_name}: {str(e)}")
+            skipped_stars.append(star_name)
+            continue
+    
+    # Report summary
+    total_stars = len(df)
+    successful_stars = len(star_grids)
+    
+    print(f"Successfully created RadialGrid2 objects for {successful_stars}/{total_stars} stars")
+    if skipped_stars:
+        print(f"Skipped {len(skipped_stars)} stars due to missing/invalid data: {skipped_stars[:5]}{'...' if len(skipped_stars) > 5 else ''}")
+    
+    return star_grids
+
+
 if __name__ == "__main__":
     # Example usage and testing
     print("SATLAS to RadialGrid2 Converter")
