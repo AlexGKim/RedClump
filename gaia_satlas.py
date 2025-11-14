@@ -403,6 +403,114 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
     return star_grids
 
 
+def calculate_star_intensity_at_satlas_wavelengths(star_row: pd.Series,
+                                                   g_mag_col: str = 'phot_g_mean_mag',
+                                                   bp_mag_col: str = 'phot_bp_mean_mag',
+                                                   rp_mag_col: str = 'phot_rp_mean_mag') -> np.ndarray:
+    """
+    Calculate intensity values for a Gaia star at SATLAS wavelengths.
+    
+    This function takes Gaia G, BP, and RP magnitudes, converts them to flux densities,
+    and interpolates to the SATLAS wavelengths (B, V, R, I, H, K bands).
+    
+    Parameters
+    ----------
+    star_row : pd.Series
+        A row from a Gaia DataFrame containing magnitude data.
+    g_mag_col : str, default 'phot_g_mean_mag'
+        Name of the column containing Gaia G magnitudes.
+    bp_mag_col : str, default 'phot_bp_mean_mag'
+        Name of the column containing Gaia BP magnitudes.
+    rp_mag_col : str, default 'phot_rp_mean_mag'
+        Name of the column containing Gaia RP magnitudes.
+        
+    Returns
+    -------
+    intensities : np.ndarray
+        Array of intensity values at SATLAS wavelengths (6 values for B, V, R, I, H, K).
+        Units: W m^-2 Hz^-1
+        
+    Raises
+    ------
+    ValueError
+        If required magnitude columns are missing or contain NaN values.
+        
+    Notes
+    -----
+    The function performs the following steps:
+    1. Extracts Gaia G, BP, RP magnitudes from the star row
+    2. Converts magnitudes to flux densities using functions from gaia_uniform_disk
+    3. Creates wavelength-flux density pairs for Gaia bands
+    4. Interpolates (log-linear) to SATLAS wavelengths
+    
+    The interpolation is performed in log space to better handle the exponential
+    nature of stellar spectra.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df = pd.read_csv('extended_data_table_2.csv')
+    >>> hd_360_row = df[df['Star'] == 'HD 360'].iloc[0]
+    >>> intensities = calculate_star_intensity_at_satlas_wavelengths(hd_360_row)
+    >>> print(f"Intensities at SATLAS wavelengths: {intensities}")
+    """
+    from gaia_uniform_disk import (
+        g_magnitude_to_flux_density,
+        bp_magnitude_to_flux_density,
+        rp_magnitude_to_flux_density
+    )
+    from gaia_zeropoint import (
+        GAIA_G_EFFECTIVE_WAVELENGTH,
+        GAIA_BP_EFFECTIVE_WAVELENGTH,
+        GAIA_RP_EFFECTIVE_WAVELENGTH
+    )
+    
+    # Check for required columns
+    required_cols = [g_mag_col, bp_mag_col, rp_mag_col]
+    for col in required_cols:
+        if col not in star_row.index:
+            raise ValueError(f"Required column '{col}' not found in star data")
+        if pd.isna(star_row[col]):
+            raise ValueError(f"Column '{col}' contains NaN value")
+    
+    # Extract magnitudes
+    g_mag = star_row[g_mag_col]
+    bp_mag = star_row[bp_mag_col]
+    rp_mag = star_row[rp_mag_col]
+    
+    # Convert magnitudes to flux densities
+    flux_g = g_magnitude_to_flux_density(g_mag)
+    flux_bp = bp_magnitude_to_flux_density(bp_mag)
+    flux_rp = rp_magnitude_to_flux_density(rp_mag)
+    
+    # Gaia wavelengths in Angstroms
+    gaia_wavelengths = np.array([
+        GAIA_BP_EFFECTIVE_WAVELENGTH * 1e10,  # Convert m to Angstroms
+        GAIA_G_EFFECTIVE_WAVELENGTH * 1e10,
+        GAIA_RP_EFFECTIVE_WAVELENGTH * 1e10
+    ])
+    
+    # Gaia flux densities
+    gaia_flux_densities = np.array([flux_bp, flux_g, flux_rp])
+    
+    # SATLAS wavelengths in Angstroms
+    satlas_wavelengths = np.array([SATLAS_BANDS[band]['wavelength'] for band in SATLAS_BANDS.keys()])
+    
+    # Perform log-linear interpolation
+    # This is more appropriate for stellar spectra which are approximately power laws
+    log_gaia_wavelengths = np.log10(gaia_wavelengths)
+    log_gaia_flux = np.log10(gaia_flux_densities)
+    log_satlas_wavelengths = np.log10(satlas_wavelengths)
+    
+    # Interpolate in log space
+    log_satlas_flux = np.interp(log_satlas_wavelengths, log_gaia_wavelengths, log_gaia_flux)
+    
+    # Convert back from log space
+    satlas_intensities = 10**log_satlas_flux
+    
+    return satlas_intensities
+
+
 if __name__ == "__main__":
     # Example usage and testing
     print("SATLAS to RadialGrid2 Converter")
