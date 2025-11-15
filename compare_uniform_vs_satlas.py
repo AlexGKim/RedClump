@@ -5,7 +5,7 @@ Compare UniformDisk vs RadialGrid2 (SATLAS) for HD 360
 
 This script creates both UniformDisk and RadialGrid2 objects for HD 360
 and compares:
-1. Intensity profiles (radial structure)
+1. Intensity profiles (radial structure) using intensity() method
 2. Visibility squared as a function of baseline
 3. Flux densities at different wavelengths
 """
@@ -95,16 +95,21 @@ def calculate_visibility_squared_comparison(uniform_disk, radial_grid, baseline_
     
     return results
 
-def plot_comparison(star_name, results, uniform_disk, radial_grid):
+def plot_comparison(star_name, results, uniform_disk, radial_grid, baseline_lengths):
     """Create comprehensive comparison plots."""
     fig = plt.figure(figsize=(18, 10))
     gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
     
-    fig.suptitle(f'UniformDisk vs RadialGrid2 (SATLAS) Comparison - {star_name}', 
+    fig.suptitle(f'UniformDisk vs RadialGrid2 (SATLAS) Comparison - {star_name}',
                  fontsize=16, fontweight='bold')
     
     # Colors for each wavelength
     colors = ['blue', 'green', 'red']
+    
+    # Determine baseline range for axis labels
+    baseline_min = baseline_lengths.min()
+    baseline_max = baseline_lengths.max()
+    baseline_label = f'Baseline Length ({baseline_min:.0f}-{baseline_max:.0f} m)'
     
     # Plot 1: UniformDisk |V|^2 vs baseline
     ax1 = fig.add_subplot(gs[0, 0])
@@ -114,7 +119,7 @@ def plot_comparison(star_name, results, uniform_disk, radial_grid):
                         'o-', color=colors[i], markersize=4, linewidth=2,
                         label=f'{result["band_name"]} ({result["wavelength_nm"]:.1f} nm)')
     
-    ax1.set_xlabel('Baseline Length (m)', fontsize=11)
+    ax1.set_xlabel(baseline_label, fontsize=11)
     ax1.set_ylabel('Visibility Squared |V|²', fontsize=11)
     ax1.set_title('UniformDisk Model', fontsize=12, fontweight='bold')
     ax1.grid(True, alpha=0.3)
@@ -128,7 +133,7 @@ def plot_comparison(star_name, results, uniform_disk, radial_grid):
                         'o-', color=colors[i], markersize=4, linewidth=2,
                         label=f'{result["band_name"]} ({result["wavelength_nm"]:.1f} nm)')
     
-    ax2.set_xlabel('Baseline Length (m)', fontsize=11)
+    ax2.set_xlabel(baseline_label, fontsize=11)
     ax2.set_ylabel('Visibility Squared |V|²', fontsize=11)
     ax2.set_title('RadialGrid2 (SATLAS) Model', fontsize=12, fontweight='bold')
     ax2.grid(True, alpha=0.3)
@@ -144,50 +149,82 @@ def plot_comparison(star_name, results, uniform_disk, radial_grid):
                     label=f'{results["uniform"][i]["band_name"]} ({results["uniform"][i]["wavelength_nm"]:.1f} nm)')
     
     ax3.axhline(y=1.0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax3.set_xlabel('Baseline Length (m)', fontsize=11)
+    ax3.set_xlabel(baseline_label, fontsize=11)
     ax3.set_ylabel('Ratio: RadialGrid2 / UniformDisk', fontsize=11)
     ax3.set_title('|V|² Ratio', fontsize=12, fontweight='bold')
     ax3.grid(True, alpha=0.3)
     ax3.legend(fontsize=9)
     
-    # Plot 4: UniformDisk radial intensity profile
+    # Plot 4: UniformDisk intensity profile using intensity() method
     ax4 = fig.add_subplot(gs[1, 0])
-    # UniformDisk has constant intensity within radius
     radius_mas = (uniform_disk.radius / MAS_TO_RAD)
-    radii = np.linspace(0, radius_mas * 1.2, 100)
-    intensity = np.where(radii <= radius_mas, 1.0, 0.0)
-    ax4.plot(radii, intensity, 'b-', linewidth=2, label='Uniform intensity')
-    ax4.axvline(x=radius_mas, color='red', linestyle='--', linewidth=1, 
+    
+    # Create radial points in mas
+    radii_mas = np.linspace(0, radius_mas * 1.2, 200)
+    radii_rad = radii_mas * MAS_TO_RAD
+    
+    # Calculate intensity at G band using intensity() method
+    # intensity(nu, n_hat) expects a direction vector [nx, ny, nz]
+    # For radial profile, use direction vectors along x-axis at different angles
+    intensities_g = []
+    for r in radii_rad:
+        # Create direction vector: n_hat = [sin(theta), 0, cos(theta)]
+        # where theta is the angle from z-axis corresponding to radial distance r
+        # For small angles: sin(theta) ≈ r, cos(theta) ≈ 1
+        n_hat = np.array([r, 0.0, 1.0])
+        # Normalize
+        n_hat = n_hat / np.linalg.norm(n_hat)
+        intensity = uniform_disk.intensity(GAIA_G_EFFECTIVE_FREQUENCY, n_hat)
+        intensities_g.append(intensity)
+    
+    intensities_g = np.array(intensities_g)
+    
+    ax4.plot(radii_mas, intensities_g, 'b-', linewidth=2,
+             label=f'G band ({GAIA_G_EFFECTIVE_WAVELENGTH*1e9:.1f} nm)')
+    ax4.axvline(x=radius_mas, color='red', linestyle='--', linewidth=1,
                 label=f'Radius = {radius_mas:.3f} mas')
     ax4.set_xlabel('Radial Distance (mas)', fontsize=11)
-    ax4.set_ylabel('Normalized Intensity', fontsize=11)
+    ax4.set_ylabel('Intensity (W/m²/Hz/sr)', fontsize=11)
     ax4.set_title('UniformDisk Intensity Profile', fontsize=12, fontweight='bold')
     ax4.grid(True, alpha=0.3)
     ax4.set_xlim(0, radius_mas * 1.2)
-    ax4.set_ylim(-0.1, 1.2)
     ax4.legend(fontsize=9)
+    ax4.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
     
-    # Plot 5: RadialGrid2 SATLAS intensity profiles
+    # Plot 5: RadialGrid2 intensity profiles using intensity() method
     ax5 = fig.add_subplot(gs[1, 1])
+    
+    # Get radial grid points from RadialGrid2
     p_rays = radial_grid.p_rays
-    I_nu_p = radial_grid.I_nu_p
     p_rays_mas = p_rays / MAS_TO_RAD
     
-    # Normalize each profile to its maximum for comparison
-    band_names_satlas = ['B', 'V', 'R', 'I', 'H', 'K']
-    colors_satlas = ['purple', 'blue', 'green', 'red', 'orange', 'brown']
+    # Calculate intensity at different wavelengths using intensity() method
+    # Plot for Gaia bands
+    gaia_bands = [
+        ('G', GAIA_G_EFFECTIVE_FREQUENCY, 'blue'),
+        ('BP', GAIA_BP_EFFECTIVE_FREQUENCY, 'green'),
+        ('RP', GAIA_RP_EFFECTIVE_FREQUENCY, 'red')
+    ]
     
-    for i, (band_name, color) in enumerate(zip(band_names_satlas, colors_satlas)):
-        intensity_normalized = I_nu_p[i, :] / I_nu_p[i, :].max()
-        ax5.plot(p_rays_mas, intensity_normalized, '-', color=color, linewidth=2,
+    for band_name, frequency, color in gaia_bands:
+        intensities = []
+        for p in p_rays:
+            # Create direction vector for this radial distance
+            n_hat = np.array([p, 0.0, 1.0])
+            n_hat = n_hat / np.linalg.norm(n_hat)
+            intensity = radial_grid.intensity(frequency, n_hat)
+            intensities.append(intensity)
+        intensities = np.array(intensities)
+        ax5.plot(p_rays_mas, intensities, '-', color=color, linewidth=2,
                 label=f'{band_name} band')
     
     ax5.set_xlabel('Radial Distance (mas)', fontsize=11)
-    ax5.set_ylabel('Normalized Intensity I/I_max', fontsize=11)
-    ax5.set_title('RadialGrid2 (SATLAS) Limb-Darkening', fontsize=12, fontweight='bold')
+    ax5.set_ylabel('Intensity (W/m²/Hz/sr)', fontsize=11)
+    ax5.set_title('RadialGrid2 (SATLAS) Intensity Profile', fontsize=12, fontweight='bold')
     ax5.grid(True, alpha=0.3)
     ax5.set_xlim(0, p_rays_mas.max() * 1.05)
-    ax5.legend(fontsize=8, ncol=2)
+    ax5.legend(fontsize=9)
+    ax5.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
     
     # Plot 6: Comparison statistics
     ax6 = fig.add_subplot(gs[1, 2])
@@ -212,7 +249,17 @@ def plot_comparison(star_name, results, uniform_disk, radial_grid):
     stats_text += f"  UD: {uniform_flux_g:.2e} W/m²/Hz\n"
     stats_text += f"  RG: {radial_flux_g:.2e} W/m²/Hz\n"
     if uniform_flux_g > 0:
-        stats_text += f"  Ratio: {radial_flux_g/uniform_flux_g:.4f}\n"
+        stats_text += f"  Ratio: {radial_flux_g/uniform_flux_g:.4f}\n\n"
+    
+    # Add intensity comparison at center
+    stats_text += f"Intensity at center (G band):\n"
+    n_hat_center = np.array([0.0, 0.0, 1.0])  # Looking straight down z-axis
+    uniform_int_center = uniform_disk.intensity(GAIA_G_EFFECTIVE_FREQUENCY, n_hat_center)
+    radial_int_center = radial_grid.intensity(GAIA_G_EFFECTIVE_FREQUENCY, n_hat_center)
+    stats_text += f"  UD: {uniform_int_center:.2e} W/m²/Hz/sr\n"
+    stats_text += f"  RG: {radial_int_center:.2e} W/m²/Hz/sr\n"
+    if uniform_int_center > 0:
+        stats_text += f"  Ratio: {radial_int_center/uniform_int_center:.4f}\n"
     
     ax6.text(0.1, 0.95, stats_text, transform=ax6.transAxes,
              verticalalignment='top', fontfamily='monospace',
@@ -285,7 +332,7 @@ def main():
     
     # Create comparison plots
     print(f"\nCreating comparison plots...")
-    fig = plot_comparison(star_name, results, uniform_disk, radial_grid)
+    fig = plot_comparison(star_name, results, uniform_disk, radial_grid, baseline_lengths)
     
     # Save plot
     output_filename = f'compare_uniform_vs_satlas_{star_name.replace(" ", "_")}.pdf'

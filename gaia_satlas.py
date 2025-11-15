@@ -47,6 +47,7 @@ SATLAS_BANDS = {
 
 
 def create_radial_grid_from_satlas(file_path: str,
+                                   specific_flux: np.ndarray = None,
                                    s: float = 1.0) -> RadialGrid2:
     """
     Create RadialGrid2 object directly from SATLAS data file in one method.
@@ -58,6 +59,9 @@ def create_radial_grid_from_satlas(file_path: str,
     ----------
     file_path : str
         Path to the SATLAS data file
+    specific_flux : np.ndarray, optional
+        Total flux density at each wavelength in W m⁻² Hz⁻¹, shape (n_wavelengths,)
+        If None, uses unit flux (1.0) for all wavelengths
     s : float, default 1.0
         Size parameter
         
@@ -119,7 +123,6 @@ def create_radial_grid_from_satlas(file_path: str,
     # Extract radius data and convert from mas to radians (angular coordinates)
     radius_mas = data['r(mas)'].values.astype(np.float64)  # Ensure float64 precision
     p_rays = radius_mas * MAS_TO_RAD  # Convert to radians
-    p_rays = p_rays.astype(np.float64)  # Ensure float64 precision
     
     # Create wavelength grid
     wavelengths = np.array([SATLAS_BANDS[band]['wavelength'] for band in SATLAS_BANDS.keys()])
@@ -133,6 +136,14 @@ def create_radial_grid_from_satlas(file_path: str,
         col = SATLAS_BANDS[band]['column']
         I_nu_p[i, :] = data[col].values.astype(np.float64)  # Ensure float64 precision
     
+    # Create specific_flux array if not provided
+    if specific_flux is None:
+        specific_flux = np.ones(n_wavelengths, dtype=np.float64)
+    else:
+        specific_flux = np.asarray(specific_flux, dtype=np.float64)
+        if len(specific_flux) != n_wavelengths:
+            raise ValueError(f"specific_flux length {len(specific_flux)} doesn't match number of wavelengths {n_wavelengths}")
+    
     # Debug: Check radius range
     max_radius_mas = radius_mas.max()
     max_radius_rad = max_radius_mas * MAS_TO_RAD
@@ -144,6 +155,7 @@ def create_radial_grid_from_satlas(file_path: str,
     
     # Create RadialGrid2 object with specified size parameter
     radial_grid = RadialGrid2(
+        specific_flux=specific_flux,
         lambdas=wavelengths,
         I_nu_p=I_nu_p,
         p_rays=p_rays,
@@ -400,42 +412,12 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
                 row, g_mag_col, bp_mag_col, rp_mag_col
             )
             
-            # Create absolute intensity array by scaling normalized profiles
-            # The normalized profile I/I0 needs to be scaled such that when integrated
-            # over the disk, it gives the correct specific flux
-            I_nu_p_absolute = np.zeros((n_wavelengths, n_radial_points))
-            
-            for i in range(n_wavelengths):
-                # First, create a temporary RadialGrid2 with the normalized profile
-                # to calculate what the integrated flux would be
-                I_temp = np.zeros((1, n_radial_points))
-                I_temp[0, :] = I_nu_p[i, :]
-                
-                temp_grid = RadialGrid2(
-                    lambdas=np.array([wavelengths[i]]),
-                    I_nu_p=I_temp,
-                    p_rays=p_rays,
-                    s=s
-                )
-                
-                # Calculate the specific flux for the normalized profile
-                wavelength_m = wavelengths[i] * 1e-10
-                frequency = SPEED_OF_LIGHT / wavelength_m
-                normalized_flux = temp_grid.specific_flux(frequency)
-                
-                # Scale factor to match the star's actual flux density
-                if normalized_flux > 0:
-                    scale_factor = star_flux_densities[i] / normalized_flux
-                else:
-                    scale_factor = star_flux_densities[i]
-                
-                # Apply the scale factor to get absolute intensities
-                I_nu_p_absolute[i, :] = scale_factor * I_nu_p[i, :]
-            
+            print(star_flux_densities)
             # Create RadialGrid2 object with absolute intensities
             radial_grid = RadialGrid2(
+                specific_flux=star_flux_densities,
                 lambdas=wavelengths,
-                I_nu_p=I_nu_p_absolute,
+                I_nu_p=I_nu_p,
                 p_rays=p_rays,
                 s=s
             )
@@ -447,6 +429,8 @@ def create_radial_grid_from_gaia(df: pd.DataFrame,
             warnings.warn(f"Error processing {star_name}: {str(e)}")
             skipped_stars.append(star_name)
             continue
+        
+        break
     
     # Report summary
     total_stars = len(df)
