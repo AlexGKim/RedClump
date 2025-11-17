@@ -47,21 +47,31 @@ SATLAS_BANDS = {
 
 
 def create_radial_grid_from_satlas(file_path: str,
-                                   specific_flux: np.ndarray = None,
+                                   star_row: pd.Series,
+                                   g_mag_col: str = 'phot_g_mean_mag',
+                                   bp_mag_col: str = 'phot_bp_mean_mag',
+                                   rp_mag_col: str = 'phot_rp_mean_mag',
                                    s: float = 1.0) -> RadialGrid2:
     """
     Create RadialGrid2 object directly from SATLAS data file in one method.
     
     This function loads SATLAS limb-darkening data, validates it, and creates
     a RadialGrid2 object with proper unit conversions in a single operation.
+    The specific flux is calculated from Gaia magnitudes using methods from
+    gaia_uniform_disk and interpolated to SATLAS wavelengths.
     
     Parameters
     ----------
     file_path : str
         Path to the SATLAS data file
-    specific_flux : np.ndarray, optional
-        Total flux density at each wavelength in W m⁻² Hz⁻¹, shape (n_wavelengths,)
-        If None, uses unit flux (1.0) for all wavelengths
+    star_row : pd.Series
+        A row from a Gaia DataFrame containing magnitude data
+    g_mag_col : str, default 'phot_g_mean_mag'
+        Name of the column containing Gaia G magnitudes
+    bp_mag_col : str, default 'phot_bp_mean_mag'
+        Name of the column containing Gaia BP magnitudes
+    rp_mag_col : str, default 'phot_rp_mean_mag'
+        Name of the column containing Gaia RP magnitudes
     s : float, default 1.0
         Size parameter
         
@@ -72,8 +82,12 @@ def create_radial_grid_from_satlas(file_path: str,
         
     Examples
     --------
+    >>> import pandas as pd
+    >>> df = pd.read_csv('extended_data_table_2.csv')
+    >>> hd_360_row = df[df['Star'] == 'HD 360'].iloc[0]
     >>> radial_grid = create_radial_grid_from_satlas(
-    ...     'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt'
+    ...     'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt',
+    ...     star_row=hd_360_row
     ... )
     >>> print(f"Wavelength range: {radial_grid.get_spectrum_info()['wavelength_range_angstrom']}")
     >>> print(f"Radial range: {radial_grid.get_spectrum_info()['radial_range_rad']}")
@@ -85,7 +99,8 @@ def create_radial_grid_from_satlas(file_path: str,
     2. Validates data structure and content
     3. Converts radius from milliarcseconds to radians
     4. Extracts wavelength and intensity data
-    5. Creates RadialGrid2 object with proper data types
+    5. Calculates specific flux from Gaia magnitudes and interpolates to SATLAS wavelengths
+    6. Creates RadialGrid2 object with proper data types
     """
     try:
         # Load the data file, skipping the header line
@@ -136,13 +151,10 @@ def create_radial_grid_from_satlas(file_path: str,
         col = SATLAS_BANDS[band]['column']
         I_nu_p[i, :] = data[col].values.astype(np.float64)  # Ensure float64 precision
     
-    # Create specific_flux array if not provided
-    if specific_flux is None:
-        specific_flux = np.ones(n_wavelengths, dtype=np.float64)
-    else:
-        specific_flux = np.asarray(specific_flux, dtype=np.float64)
-        if len(specific_flux) != n_wavelengths:
-            raise ValueError(f"specific_flux length {len(specific_flux)} doesn't match number of wavelengths {n_wavelengths}")
+    # Calculate specific_flux from Gaia magnitudes using methods from gaia_uniform_disk
+    specific_flux = calculate_star_intensity_at_satlas_wavelengths(
+        star_row, g_mag_col, bp_mag_col, rp_mag_col
+    )
     
     # Debug: Check radius range
     max_radius_mas = radius_mas.max()
@@ -560,9 +572,14 @@ if __name__ == "__main__":
     satlas_file = 'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt'
     
     try:
-        # Create RadialGrid2 from SATLAS data
+        # Load Gaia data for example star
+        df = pd.read_csv('extended_data_table_2.csv')
+        hd_360_row = df[df['Star'] == 'HD 360'].iloc[0]
+        
+        # Create RadialGrid2 from SATLAS data with Gaia magnitudes
         print(f"Loading SATLAS data from: {satlas_file}")
-        radial_grid = create_radial_grid_from_satlas(satlas_file)
+        print(f"Using HD 360 magnitudes: G={hd_360_row['phot_g_mean_mag']:.3f}, BP={hd_360_row['phot_bp_mean_mag']:.3f}, RP={hd_360_row['phot_rp_mean_mag']:.3f}")
+        radial_grid = create_radial_grid_from_satlas(satlas_file, hd_360_row)
         
         # Display properties
         properties = get_radial_grid_properties(radial_grid)
@@ -594,9 +611,9 @@ if __name__ == "__main__":
             flux = radial_grid.specific_flux(frequency)
             print(f"  {band} band: F_ν = {flux:.2e}")
         
-    except FileNotFoundError:
-        print(f"Error: SATLAS data file not found: {satlas_file}")
-        print("Please ensure the data file exists in the specified location")
+    except FileNotFoundError as e:
+        print(f"Error: File not found: {str(e)}")
+        print("Please ensure the data files exist in the specified location")
     except Exception as e:
         print(f"Error: {str(e)}")
         
