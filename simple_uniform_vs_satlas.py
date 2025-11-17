@@ -93,9 +93,14 @@ def create_uniform_disk_model():
         print(f"Error creating UniformDisk model: {str(e)}")
         raise
 
-def create_satlas_model():
+def create_satlas_model(hd360_row):
     """
     Create RadialGrid2 model from SATLAS limb-darkening data.
+    
+    Parameters
+    ----------
+    hd360_row : pd.Series
+        HD 360 data row containing Gaia magnitudes
     
     Returns
     -------
@@ -112,8 +117,8 @@ def create_satlas_model():
     if not Path(satlas_file).exists():
         raise FileNotFoundError(f"SATLAS data file not found: {satlas_file}")
     
-    # Create RadialGrid2 from SATLAS data
-    radial_grid = create_radial_grid_from_satlas(satlas_file)
+    # Create RadialGrid2 from SATLAS data with Gaia magnitudes
+    radial_grid = create_radial_grid_from_satlas(satlas_file, hd360_row)
     
     # Get properties
     props = get_radial_grid_properties(radial_grid)
@@ -362,9 +367,13 @@ def main():
     print("=" * 50)
     
     try:
+        # Load HD 360 data
+        df = pd.read_csv('extended_data_table_2.csv')
+        hd360_row = df[df['Star'] == 'HD 360'].iloc[0]
+        
         # Create models
         uniform_disk, hd360_data = create_uniform_disk_model()
-        radial_grid, satlas_props = create_satlas_model()
+        radial_grid, satlas_props = create_satlas_model(hd360_row)
         
         # Set comparison frequency (RP band)
         frequency = GAIA_RP_EFFECTIVE_FREQUENCY
