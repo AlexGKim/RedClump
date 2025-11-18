@@ -91,16 +91,24 @@ def calculate_parameters_for_star(star_name, star_disk, observation, baseline_le
     
     return results
 
-def plot_star_parameters(star_name, results, observation):
-    """Create plots for |V|^2, sqrt_inv_Fisher_lnrlnr, inverse_noise, and specific_flux vs baseline."""
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+def plot_star_parameters(star_name, results, observation, star_source=None, wavelengths=None, band_names=None):
+    """Create plots for |V|^2, sqrt_inv_Fisher_lnrlnr, inverse_noise, specific_flux, and intensity profile vs baseline."""
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+    
+    # Create subplots
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax3 = fig.add_subplot(gs[1, 0])
+    ax4 = fig.add_subplot(gs[1, 1])
+    ax5 = fig.add_subplot(gs[:, 2])  # Intensity profile spans both rows
+    
     fig.suptitle(f'Star: {star_name}', fontsize=16, fontweight='bold')
     
     # Colors and labels for each wavelength
     colors = ['blue', 'green', 'red']
     
     # Plot |V|^2 vs baseline (top-left subplot)
-    ax1 = axes[0, 0]
     for i, result in enumerate(results):
         ax1.semilogy(result['baselines'], result['visibility_squared'],
                     'o-', color=colors[i], markersize=4, linewidth=2,
@@ -113,8 +121,7 @@ def plot_star_parameters(star_name, results, observation):
     ax1.set_xlim(0, 250)
     ax1.legend()
     
-    # Plot sqrt_inv_Fisher_lnrlnr vs baseline (top-right subplot)
-    ax2 = axes[0, 1]
+    # Plot sqrt_inv_Fisher_lnrlnr vs baseline (top-center subplot)
     for i, result in enumerate(results):
         ax2.semilogy(result['baselines'], result['sqrt_inv_fisher'],
                     'o-', color=colors[i], markersize=4, linewidth=2,
@@ -143,7 +150,6 @@ def plot_star_parameters(star_name, results, observation):
              fontsize=8)
     
     # Plot inverse_noise vs baseline (bottom-left subplot)
-    ax3 = axes[1, 0]
     for i, result in enumerate(results):
         ax3.semilogy(result['baselines'], result['inverse_noise_per_baseline'],
                     'o-', color=colors[i], markersize=4, linewidth=2,
@@ -156,8 +162,7 @@ def plot_star_parameters(star_name, results, observation):
     ax3.set_xlim(0, 250)
     ax3.legend()
     
-    # Plot specific_flux vs baseline (bottom-right subplot)
-    ax4 = axes[1, 1]
+    # Plot specific_flux vs baseline (bottom-center subplot)
     for i, result in enumerate(results):
         # specific_flux is constant for all baselines, so just plot it as a horizontal line
         ax4.semilogy(result['baselines'], result['specific_flux'],
@@ -170,6 +175,124 @@ def plot_star_parameters(star_name, results, observation):
     ax4.grid(True, alpha=0.3)
     ax4.set_xlim(0, 250)
     ax4.legend()
+    
+    # Plot intensity profile (right side, spanning both rows)
+    if star_source is not None and wavelengths is not None and band_names is not None:
+        # Check if source has radial profile (RadialGrid2) or is uniform disk
+        has_radial_profile = hasattr(star_source, 'I_nu_p') and hasattr(star_source, 'p_rays')
+        
+        if has_radial_profile:
+            # For RadialGrid2 sources, plot the actual intensity profiles
+            # Convert p_rays from radians to mas for plotting
+            MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
+            r_mas = star_source.p_rays / MAS_TO_RAD
+            
+            for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+                # Get intensity profile for this wavelength
+                # I_nu_p has shape (n_wavelengths, n_radial_points)
+                if i < star_source.I_nu_p.shape[0]:
+                    intensity = star_source.I_nu_p[i, :]
+                    ax5.plot(r_mas, intensity, 'o-', color=colors[i],
+                           markersize=3, linewidth=2,
+                           label=f'{band_name} ({wavelength*1e9:.1f} nm)')
+            
+            ax5.set_xlabel('Radial Distance (mas)')
+            ax5.set_ylabel('Normalized Intensity I(r)/I(0)')
+            ax5.set_title('Limb-Darkened Intensity Profile')
+            ax5.set_xlim(0, r_mas.max() * 1.05)
+            ax5.set_ylim(0, 1.1)
+        else:
+            # For uniform disk, plot a flat profile
+            # Get the radius from the source
+            if hasattr(star_source, 'r'):
+                radius_rad = star_source.r
+                MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
+                radius_mas = radius_rad / MAS_TO_RAD
+                
+                r_mas = np.linspace(0, radius_mas, 100)
+                intensity = np.ones_like(r_mas)
+                intensity[r_mas > radius_mas] = 0
+                
+                for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+                    ax5.plot(r_mas, intensity, '-', color=colors[i],
+                           linewidth=2, label=f'{band_name} ({wavelength*1e9:.1f} nm)')
+                
+                ax5.set_xlabel('Radial Distance (mas)')
+                ax5.set_ylabel('Normalized Intensity I(r)/I(0)')
+                ax5.set_title('Uniform Disk Intensity Profile')
+                ax5.set_xlim(0, radius_mas * 1.2)
+                ax5.set_ylim(-0.1, 1.2)
+            else:
+                ax5.text(0.5, 0.5, 'No radial profile available',
+                       ha='center', va='center', transform=ax5.transAxes)
+        
+        ax5.grid(True, alpha=0.3)
+        ax5.legend()
+    else:
+        ax5.text(0.5, 0.5, 'Intensity profile not provided',
+               ha='center', va='center', transform=ax5.transAxes)
+        ax5.set_title('Intensity Profile')
+    
+    return fig
+
+def plot_intensity_profile(star_name, star_source, wavelengths, band_names):
+    """Create intensity profile plot for a source."""
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    fig.suptitle(f'Intensity Profile: {star_name}', fontsize=16, fontweight='bold')
+    
+    # Colors for each wavelength
+    colors = ['blue', 'green', 'red']
+    
+    # Check if source has radial profile (RadialGrid2) or is uniform disk
+    has_radial_profile = hasattr(star_source, 'I_nu_p') and hasattr(star_source, 'p_rays')
+    
+    if has_radial_profile:
+        # For RadialGrid2 sources, plot the actual intensity profiles
+        # Convert p_rays from radians to mas for plotting
+        MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
+        r_mas = star_source.p_rays / MAS_TO_RAD
+        
+        for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+            # Get intensity profile for this wavelength
+            # I_nu_p has shape (n_wavelengths, n_radial_points)
+            if i < star_source.I_nu_p.shape[0]:
+                intensity = star_source.I_nu_p[i, :]
+                ax.plot(r_mas, intensity, 'o-', color=colors[i],
+                       markersize=3, linewidth=2,
+                       label=f'{band_name} ({wavelength*1e9:.1f} nm)')
+        
+        ax.set_xlabel('Radial Distance (mas)')
+        ax.set_ylabel('Normalized Intensity I(r)/I(0)')
+        ax.set_title('Limb-Darkened Intensity Profile')
+        ax.set_xlim(0, r_mas.max() * 1.05)
+        ax.set_ylim(0, 1.1)
+    else:
+        # For uniform disk, plot a flat profile
+        # Get the radius from the source
+        if hasattr(star_source, 'r'):
+            radius_rad = star_source.r
+            MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
+            radius_mas = radius_rad / MAS_TO_RAD
+            
+            r_mas = np.linspace(0, radius_mas, 100)
+            intensity = np.ones_like(r_mas)
+            intensity[r_mas > radius_mas] = 0
+            
+            for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+                ax.plot(r_mas, intensity, '-', color=colors[i],
+                       linewidth=2, label=f'{band_name} ({wavelength*1e9:.1f} nm)')
+            
+            ax.set_xlabel('Radial Distance (mas)')
+            ax.set_ylabel('Normalized Intensity I(r)/I(0)')
+            ax.set_title('Uniform Disk Intensity Profile')
+            ax.set_xlim(0, radius_mas * 1.2)
+            ax.set_ylim(-0.1, 1.2)
+        else:
+            ax.text(0.5, 0.5, 'No radial profile available',
+                   ha='center', va='center', transform=ax.transAxes)
+    
+    ax.grid(True, alpha=0.3)
+    ax.legend()
     
     plt.tight_layout()
     return fig
@@ -303,20 +426,26 @@ def main():
         # Create plots
         print(f"\nCreating plots...")
         
-        # Plot for uniform disk
-        fig_uniform = plot_star_parameters(star_name, results, observation)
+        # Plot for uniform disk (with intensity profile)
+        fig_uniform = plot_star_parameters(star_name + " (Uniform Disk)", results, observation,
+                                          star_source=star_disks[star_name],
+                                          wavelengths=wavelengths, band_names=band_names)
         output_filename_uniform = f'plot_one_{star_name.replace(" ", "_")}_uniform.pdf'
         fig_uniform.savefig(output_filename_uniform, bbox_inches='tight', dpi=300)
         print(f"✓ Uniform disk plot saved to {output_filename_uniform}")
 
-        # Plot for SATLAS radial grid
-        fig_radial_satlas = plot_star_parameters(star_name + " (SATLAS)", results_radial_satlas, observation)
+        # Plot for SATLAS radial grid (with intensity profile)
+        fig_radial_satlas = plot_star_parameters(star_name + " (SATLAS)", results_radial_satlas, observation,
+                                                 star_source=radial_grid_satlas,
+                                                 wavelengths=wavelengths, band_names=band_names)
         output_filename_satlas = f'plot_one_{star_name.replace(" ", "_")}_satlas.pdf'
         fig_radial_satlas.savefig(output_filename_satlas, bbox_inches='tight', dpi=300)
         print(f"✓ SATLAS radial plot saved to {output_filename_satlas}")
         
-        # Plot for PHOENIX radial grid
-        fig_radial_phoenix = plot_star_parameters(star_name + " (PHOENIX)", results_radial_phoenix, observation)
+        # Plot for PHOENIX radial grid (with intensity profile)
+        fig_radial_phoenix = plot_star_parameters(star_name + " (PHOENIX)", results_radial_phoenix, observation,
+                                                  star_source=first_radial_phoenix,
+                                                  wavelengths=wavelengths, band_names=band_names)
         output_filename_phoenix = f'plot_one_{star_name.replace(" ", "_")}_phoenix.pdf'
         fig_radial_phoenix.savefig(output_filename_phoenix, bbox_inches='tight', dpi=300)
         print(f"✓ PHOENIX radial plot saved to {output_filename_phoenix}")
@@ -329,7 +458,7 @@ def main():
         
         print(f"\n" + "=" * 60)
         print("Single star plotting completed successfully!")
-        print(f"Generated 3 plots for {star_name}:")
+        print(f"Generated 3 plots for {star_name} (each with intensity profile):")
         print(f"  - Uniform disk: {output_filename_uniform}")
         print(f"  - SATLAS radial: {output_filename_satlas}")
         print(f"  - PHOENIX radial: {output_filename_phoenix}")
