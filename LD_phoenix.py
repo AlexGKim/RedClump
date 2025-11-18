@@ -179,24 +179,22 @@ class LimbDarkening:
         
         return limb_darkening_profile
     
-    def get_limb_darkening_function_radial(self, logg, Teff, Z, Vel, filter_name):
+    def get_limb_darkening_function_angle(self, logg, Teff, Z, Vel, filter_name):
         """
-        Get the limb darkening function I(r)/I(0) in terms of radial coordinate r.
+        Get the limb darkening function I(angle)/I(0) in terms of angle.
         
-        This provides the limb darkening as a function of r = √(1-μ²), where r is the
-        normalized radial distance from disk center (0 ≤ r ≤ 1).
-        
-        The relationship is: μ = √(1-r²), so the 4-parameter law becomes:
-        I(r)/I(0) = 1 - a₁r^0.5 - a₂r^1 - a₃r^1.5 - a₄r^2
+        This provides the limb darkening as a function of angle from the surface normal,
+        where μ = cos(angle). The angle is measured from the surface normal (0 at center,
+        π/2 at limb).
         
         Parameters:
         -----------
         logg : float
             Log surface gravity [cm/s²]
-        Teff : float  
+        Teff : float
             Effective temperature [K]
         Z : float
-            Metallicity [M/H] 
+            Metallicity [M/H]
         Vel : float
             Microturbulent velocity [km/s]
         filter_name : str
@@ -205,41 +203,40 @@ class LimbDarkening:
         Returns:
         --------
         function : callable
-            Function that takes r (radial distance, 0 ≤ r ≤ 1) and returns I(r)/I(0)
+            Function that takes angle (in radians, 0 ≤ angle ≤ π/2) and returns I(angle)/I(0)
+            where μ = cos(angle)
         """
         # Get interpolated coefficients
         a1, a2, a3, a4 = self._interpolate_coefficients(logg, Teff, Z, Vel, filter_name)
         
-        def limb_darkening_profile_radial(r):
+        def limb_darkening_profile_angle(angle):
             """
-            Compute the limb darkening profile I(r)/I(0) as function of radial distance.
+            Compute the limb darkening profile I(angle)/I(0) as function of angle.
             
             Parameters:
             -----------
-            r : float or array-like
-                Normalized radial distance from disk center (0 ≤ r ≤ 1)
-                where r = √(1-μ²)
+            angle : float or array-like
+                Angle from surface normal in radians (0 ≤ angle ≤ π/2)
+                where μ = cos(angle)
                 
             Returns:
             --------
-            float or array-like : I(r)/I(0)
+            float or array-like : I(angle)/I(0)
                 Normalized intensity
             """
-            r = np.asarray(r)
+            angle = np.asarray(angle)
             
-            # Ensure r is in valid range [0, 1]
-            r = np.clip(r, 0, 1)
+            # Ensure angle is in valid range [0, π/2]
+            angle = np.clip(angle, 0, np.pi/2)
             
-            # Convert r to μ: μ = √(1-r²)
-            mu = np.sqrt(1 - r**2)
+            # Calculate μ = cos(angle)
+            mu = np.cos(angle)
             
             # 4-parameter limb darkening law
-            # Since (1-μ) = (1-√(1-r²)) = 1-√(1-r²), we can express this directly in terms of r
-            # But it's cleaner to first compute μ and then use (1-μ)
             one_minus_mu = 1 - mu
             
             term1 = a1 * one_minus_mu**0.5
-            term2 = a2 * one_minus_mu**1.0  
+            term2 = a2 * one_minus_mu**1.0
             term3 = a3 * one_minus_mu**1.5
             term4 = a4 * one_minus_mu**2.0
             
@@ -248,78 +245,7 @@ class LimbDarkening:
             # Ensure intensity doesn't go negative
             return np.maximum(intensity, 0.0)
         
-        return limb_darkening_profile_radial
-    
-    def get_limb_darkening_function_radial_direct(self, logg, Teff, Z, Vel, filter_name):
-        """
-        Get the limb darkening function I(r)/I(0) directly in terms of r.
-        
-        This is an alternative formulation that expresses the limb darkening law
-        directly in terms of r = √(1-μ²). For the standard 4-parameter law,
-        this becomes more complex algebraically, but can be useful for certain
-        applications.
-        
-        Parameters:
-        -----------
-        logg : float
-            Log surface gravity [cm/s²]
-        Teff : float  
-            Effective temperature [K]
-        Z : float
-            Metallicity [M/H] 
-        Vel : float
-            Microturbulent velocity [km/s]
-        filter_name : str
-            Filter name (one of uvbyUBVRIJHK)
-            
-        Returns:
-        --------
-        function : callable
-            Function that takes r and returns I(r)/I(0)
-        """
-        # Get interpolated coefficients  
-        a1, a2, a3, a4 = self._interpolate_coefficients(logg, Teff, Z, Vel, filter_name)
-        
-        def limb_darkening_profile_radial_direct(r):
-            """
-            Compute limb darkening profile directly as function of r.
-            
-            Parameters:
-            -----------
-            r : float or array-like
-                Normalized radial distance from disk center (0 ≤ r ≤ 1)
-                
-            Returns:
-            --------
-            float or array-like : I(r)/I(0)
-                Normalized intensity
-            """
-            r = np.asarray(r)
-            
-            # Ensure r is in valid range [0, 1]  
-            r = np.clip(r, 0, 1)
-            
-            # For the 4-parameter law: I(μ)/I(0) = 1 - a₁(1-μ)^0.5 - a₂(1-μ) - a₃(1-μ)^1.5 - a₄(1-μ)²
-            # With μ = √(1-r²), we have (1-μ) = 1 - √(1-r²)
-            # This can be simplified using the identity: 1 - √(1-r²) = r²/(1 + √(1-r²))
-            # But for numerical stability, we'll use the direct computation
-            
-            mu = np.sqrt(1 - r**2)
-            one_minus_mu = 1 - mu
-            
-            # Handle the case where r = 1 (μ = 0, limb)
-            # When r = 1, one_minus_mu = 1
-            
-            term1 = a1 * one_minus_mu**0.5
-            term2 = a2 * one_minus_mu**1.0
-            term3 = a3 * one_minus_mu**1.5  
-            term4 = a4 * one_minus_mu**2.0
-            
-            intensity = 1.0 - term1 - term2 - term3 - term4
-            
-            return np.maximum(intensity, 0.0)
-        
-        return limb_darkening_profile_radial_direct
+        return limb_darkening_profile_angle
     
     def __call__(self, logg, Teff, Z, Vel, filter_name):
         """

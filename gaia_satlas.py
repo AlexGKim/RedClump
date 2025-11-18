@@ -572,7 +572,8 @@ def create_radial_from_gaia(df: pd.DataFrame,
                             star_name_col: str = 'Star',
                             vel: float = 1.0,
                             s: float = 1.0,
-                            n_radial_points: int = 100) -> Dict[str, RadialGrid2]:
+                            n_radial_points: int = 100,
+                            satlas_log_dir: Optional[str] = None) -> Dict[str, RadialGrid2]:
     """
     Create RadialGrid2 objects from Gaia data using PHOENIX limb-darkening models.
     
@@ -606,6 +607,11 @@ def create_radial_from_gaia(df: pd.DataFrame,
         Size parameter for RadialGrid2 objects.
     n_radial_points : int, default 100
         Number of radial grid points from center to limb.
+    satlas_log_dir : str, optional
+        Path to directory containing SATLAS log file with radius and distance info.
+        If provided, will read radius (r) and distance (D) from log file to properly
+        calculate the angular coordinate relationship: gamma = r/D * sin(t), where
+        t is the angular coordinate in the intensity profile.
         
     Returns
     -------
@@ -627,9 +633,13 @@ def create_radial_from_gaia(df: pd.DataFrame,
     1. Extracts stellar parameters (Teff, log g, [Fe/H])
     2. Matches to closest PHOENIX model using match_phoenix_parameters
     3. Gets limb-darkening functions for each SATLAS band (B, V, R, I, H, K)
-    4. Creates radial intensity grid using the limb-darkening functions
-    5. Calculates absolute flux densities from Gaia magnitudes
-    6. Creates RadialGrid2 object with PHOENIX profiles and absolute intensities
+    4. If satlas_log_dir provided, reads radius r and distance D from log file
+    5. Creates radial intensity grid using the limb-darkening functions:
+       - For each angular coordinate t: gamma = r/D * sin(t)
+       - Converts gamma to mu = cos(gamma)
+       - Evaluates limb-darkening function at mu
+    6. Calculates absolute flux densities from Gaia magnitudes
+    7. Creates RadialGrid2 object with PHOENIX profiles and absolute intensities
     
     The SATLAS bands are mapped to PHOENIX filters as follows:
     - B band (4450 Å) → PHOENIX 'B' filter
@@ -689,8 +699,29 @@ def create_radial_from_gaia(df: pd.DataFrame,
         'K': 'K'
     }
     
-    # Create radial grid (normalized, 0 to 1)
-    r_normalized = np.linspace(0, 1, n_radial_points, dtype=np.float64)
+    # Read radius and distance from SATLAS log if provided
+    radius_rsun = None
+    distance_pc = None
+    if satlas_log_dir is not None:
+        log_path = Path(satlas_log_dir) / 'log'
+        if log_path.exists():
+            try:
+                with open(log_path, 'r') as f:
+                    for line in f:
+                        if 'Radius' in line and 'distance' in line:
+                            # Parse line like: "Radius = 9.312 Rsun ; distance = 95.594 pc"
+                            parts = line.split(';')
+                            radius_part = parts[0].split('=')[1].strip().split()[0]
+                            distance_part = parts[1].split('=')[1].strip().split()[0]
+                            radius_rsun = float(radius_part)
+                            distance_pc = float(distance_part)
+                            print(f"Read from SATLAS log: r = {radius_rsun} R_sun, D = {distance_pc} pc")
+                            break
+            except Exception as e:
+                warnings.warn(f"Could not read radius/distance from {log_path}: {str(e)}")
+    
+    # Create angular coordinate grid t (from 0 to pi/2, center to limb)
+    t_grid = np.linspace(0, np.pi/2, n_radial_points, dtype=np.float64)
     
     # Create RadialGrid2 objects for each star
     star_grids = {}
@@ -730,30 +761,66 @@ def create_radial_from_gaia(df: pd.DataFrame,
             for i, band in enumerate(SATLAS_BANDS.keys()):
                 phoenix_filter = satlas_to_phoenix[band]
                 
-                # Get limb-darkening function from PHOENIX
-                ld_func = ld.get_limb_darkening_function_radial(
+                # Get limb-darkening function from PHOENIX (mu-based)
+                ld_func = ld.get_limb_darkening_function(
                     logg_phoenix, teff_phoenix, feh_phoenix, vel, phoenix_filter
                 )
                 
-                # Evaluate limb-darkening function at radial grid points
-                I_nu_p[i, :] = ld_func(r_normalized)
+                # Calculate intensity profile based on angular coordinate relationship
+                if radius_rsun is not None and distance_pc is not None:
+                    # Convert radius to meters and distance to meters
+                    r_meters = radius_rsun * 6.957e8  # R_sun to meters
+                    D_meters = distance_pc * PARSEC_TO_METERS
+                    
+                    # For each angular coordinate t, calculate gamma = (r/D) * sin(t)
+                    # gamma is the angle from the line of sight to the surface normal
+                    gamma_angles = (r_meters / D_meters) * np.sin(t_grid)
+                    
+                    # Convert gamma to mu = cos(gamma)
+                    mu_values = np.cos(gamma_angles)
+                    
+                    # Evaluate limb-darkening function at mu values
+                    I_nu_p[i, :] = ld_func(mu_values)
+                else:
+                    # Fallback: use t_grid directly as angles from surface normal
+                    # This assumes normalized coordinates where t goes from 0 (center) to pi/2 (limb)
+                    mu_values = np.cos(t_grid)
+                    I_nu_p[i, :] = ld_func(mu_values)
             
             # Calculate absolute flux densities for this star at SATLAS wavelengths
             star_flux_densities = calculate_star_intensity_at_satlas_wavelengths(
                 row, g_mag_col, bp_mag_col, rp_mag_col
             )
             
-            # We need to convert r_normalized to angular coordinates (radians)
-            # Get angular diameter from the DataFrame if available
-            if 'LD' in df.columns and not pd.isna(row['LD']):
+            # Convert angular coordinates to radians for p_rays
+            # p_rays represents the angular coordinate in the sky plane
+            if radius_rsun is not None and distance_pc is not None:
+                # Calculate angular radius: theta = r/D (in radians)
+                r_meters = radius_rsun * 6.957e8  # R_sun to meters
+                D_meters = distance_pc * PARSEC_TO_METERS
+                max_angular_radius_rad = r_meters / D_meters
+                
+                # p_rays = angular radius * sin(t), where t is the angular coordinate
+                p_rays = max_angular_radius_rad * np.sin(t_grid)
+                p_rays = p_rays.astype(np.float64)
+                
+                print(f"  Angular radius: {max_angular_radius_rad / MAS_TO_RAD:.3f} mas")
+            elif 'LD' in df.columns and not pd.isna(row['LD']):
                 # LD is limb-darkened angular diameter in mas
                 max_radius_mas = float(row['LD']) / 2.0  # Convert diameter to radius
+                max_angular_radius_rad = max_radius_mas * MAS_TO_RAD
+                
+                # p_rays = angular radius * sin(t)
+                p_rays = max_angular_radius_rad * np.sin(t_grid)
+                p_rays = p_rays.astype(np.float64)
             else:
                 # Use a typical stellar radius estimate as fallback
                 max_radius_mas = 0.5  # mas, typical for red clump stars
-            
-            p_rays = r_normalized * max_radius_mas * MAS_TO_RAD
-            p_rays = p_rays.astype(np.float64)
+                max_angular_radius_rad = max_radius_mas * MAS_TO_RAD
+                
+                # p_rays = angular radius * sin(t)
+                p_rays = max_angular_radius_rad * np.sin(t_grid)
+                p_rays = p_rays.astype(np.float64)
             
             # Create RadialGrid2 object with PHOENIX limb-darkening and absolute intensities
             radial_grid = RadialGrid2(
