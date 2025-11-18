@@ -74,8 +74,7 @@ def main():
     # Create RadialGrid from PHOENIX models
     print("Creating RadialGrid from PHOENIX models...")
     radial_grids_phoenix = create_radial_from_gaia(
-        df[df['Star'] == star_name],
-        satlas_log_dir=satlas_log_dir
+        df[df['Star'] == star_name]
     )
     radial_grid_phoenix = radial_grids_phoenix[star_name]
     

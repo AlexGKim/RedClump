@@ -23,7 +23,8 @@ from gaia_zeropoint import (
     GAIA_RP_EFFECTIVE_WAVELENGTH,
     GAIA_G_EFFECTIVE_FREQUENCY,
     GAIA_BP_EFFECTIVE_FREQUENCY,
-    GAIA_RP_EFFECTIVE_FREQUENCY
+    GAIA_RP_EFFECTIVE_FREQUENCY,
+    SPEED_OF_LIGHT
 )
 from g2.core import Observation, fisher_matrix, inverse_noise
 
@@ -106,7 +107,7 @@ def plot_star_parameters(star_name, results, observation, star_source=None, wave
     fig.suptitle(f'Star: {star_name}', fontsize=16, fontweight='bold')
     
     # Colors and labels for each wavelength
-    colors = ['blue', 'green', 'red']
+    colors = ['blue', 'green', 'red', 'orange']
     
     # Plot |V|^2 vs baseline (top-left subplot)
     for i, result in enumerate(results):
@@ -187,11 +188,35 @@ def plot_star_parameters(star_name, results, observation, star_source=None, wave
             MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
             r_mas = star_source.p_rays / MAS_TO_RAD
             
+            # Map band names to SATLAS band indices
+            # SATLAS bands order: B, V, R, I, H, K (indices 0-5)
+            # Our bands: G, BP, RP, H
+            # For RadialGrid sources, we need to find the closest match
+            from gaia_satlas import SATLAS_BANDS
+            satlas_band_order = list(SATLAS_BANDS.keys())
+            
             for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+                # Map our band names to SATLAS indices
+                if band_name in satlas_band_order:
+                    # Direct match (e.g., H band)
+                    band_idx = satlas_band_order.index(band_name)
+                elif band_name == 'G':
+                    # G band is closest to V band
+                    band_idx = satlas_band_order.index('V')
+                elif band_name == 'BP':
+                    # BP band is closest to B band
+                    band_idx = satlas_band_order.index('B')
+                elif band_name == 'RP':
+                    # RP band is closest to R band
+                    band_idx = satlas_band_order.index('R')
+                else:
+                    # Fallback to index i
+                    band_idx = i
+                
                 # Get intensity profile for this wavelength
                 # I_nu_p has shape (n_wavelengths, n_radial_points)
-                if i < star_source.I_nu_p.shape[0]:
-                    intensity = star_source.I_nu_p[i, :]
+                if band_idx < star_source.I_nu_p.shape[0]:
+                    intensity = star_source.I_nu_p[band_idx, :]
                     ax5.plot(r_mas, intensity, 'o-', color=colors[i],
                            markersize=3, linewidth=2,
                            label=f'{band_name} ({wavelength*1e9:.1f} nm)')
@@ -241,7 +266,7 @@ def plot_intensity_profile(star_name, star_source, wavelengths, band_names):
     fig.suptitle(f'Intensity Profile: {star_name}', fontsize=16, fontweight='bold')
     
     # Colors for each wavelength
-    colors = ['blue', 'green', 'red']
+    colors = ['blue', 'green', 'red', 'orange']
     
     # Check if source has radial profile (RadialGrid2) or is uniform disk
     has_radial_profile = hasattr(star_source, 'I_nu_p') and hasattr(star_source, 'p_rays')
@@ -252,11 +277,32 @@ def plot_intensity_profile(star_name, star_source, wavelengths, band_names):
         MAS_TO_RAD = np.pi / (180 * 3600 * 1000)
         r_mas = star_source.p_rays / MAS_TO_RAD
         
+        # Map band names to SATLAS band indices
+        from gaia_satlas import SATLAS_BANDS
+        satlas_band_order = list(SATLAS_BANDS.keys())
+        
         for i, (wavelength, band_name) in enumerate(zip(wavelengths, band_names)):
+            # Map our band names to SATLAS indices
+            if band_name in satlas_band_order:
+                # Direct match (e.g., H band)
+                band_idx = satlas_band_order.index(band_name)
+            elif band_name == 'G':
+                # G band is closest to V band
+                band_idx = satlas_band_order.index('V')
+            elif band_name == 'BP':
+                # BP band is closest to B band
+                band_idx = satlas_band_order.index('B')
+            elif band_name == 'RP':
+                # RP band is closest to R band
+                band_idx = satlas_band_order.index('R')
+            else:
+                # Fallback to index i
+                band_idx = i
+            
             # Get intensity profile for this wavelength
             # I_nu_p has shape (n_wavelengths, n_radial_points)
-            if i < star_source.I_nu_p.shape[0]:
-                intensity = star_source.I_nu_p[i, :]
+            if band_idx < star_source.I_nu_p.shape[0]:
+                intensity = star_source.I_nu_p[band_idx, :]
                 ax.plot(r_mas, intensity, 'o-', color=colors[i],
                        markersize=3, linewidth=2,
                        label=f'{band_name} ({wavelength*1e9:.1f} nm)')
@@ -379,9 +425,13 @@ def main():
     baseline_lengths = np.arange(25, 251, 10)  # 50, 75, 100, ..., 650
     
     # Wavelengths and frequencies
-    wavelengths = [GAIA_G_EFFECTIVE_WAVELENGTH, GAIA_BP_EFFECTIVE_WAVELENGTH, GAIA_RP_EFFECTIVE_WAVELENGTH]
-    frequencies = [GAIA_G_EFFECTIVE_FREQUENCY, GAIA_BP_EFFECTIVE_FREQUENCY, GAIA_RP_EFFECTIVE_FREQUENCY]
-    band_names = ['G', 'BP', 'RP']
+    # H band: 16300 Angstroms = 1.63e-6 meters
+    H_BAND_WAVELENGTH = 16300e-10  # meters (1630 nm)
+    H_BAND_FREQUENCY = SPEED_OF_LIGHT / H_BAND_WAVELENGTH  # Hz
+    
+    wavelengths = [GAIA_G_EFFECTIVE_WAVELENGTH, GAIA_BP_EFFECTIVE_WAVELENGTH, GAIA_RP_EFFECTIVE_WAVELENGTH, H_BAND_WAVELENGTH]
+    frequencies = [GAIA_G_EFFECTIVE_FREQUENCY, GAIA_BP_EFFECTIVE_FREQUENCY, GAIA_RP_EFFECTIVE_FREQUENCY, H_BAND_FREQUENCY]
+    band_names = ['G', 'BP', 'RP', 'H']
     
     print(f"\nObservation parameters:")
     print(f"  Integration time: {observation.integration_time} s")
