@@ -562,6 +562,231 @@ def calculate_star_intensity_at_satlas_wavelengths(star_row: pd.Series,
     
     return satlas_intensities
 
+def create_radial_from_gaia(df: pd.DataFrame,
+                            teff_col: str = 'teff_gspphot',
+                            logg_col: str = 'logg_gspphot',
+                            feh_col: str = 'mh_gspphot',
+                            g_mag_col: str = 'phot_g_mean_mag',
+                            bp_mag_col: str = 'phot_bp_mean_mag',
+                            rp_mag_col: str = 'phot_rp_mean_mag',
+                            star_name_col: str = 'Star',
+                            vel: float = 1.0,
+                            s: float = 1.0,
+                            n_radial_points: int = 100) -> Dict[str, RadialGrid2]:
+    """
+    Create RadialGrid2 objects from Gaia data using PHOENIX limb-darkening models.
+    
+    This function creates RadialGrid2 objects for stars from a Gaia DataFrame by:
+    1. Matching each star's parameters (Teff, log g, [Fe/H]) to the closest PHOENIX model
+    2. Getting limb-darkening functions for each SATLAS band from LD_phoenix
+    3. Creating gridded intensity profiles for each band
+    4. Building RadialGrid2 objects with absolute flux densities from Gaia magnitudes
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing stellar data with Gaia measurements and parameters.
+    teff_col : str, default 'teff_gspphot'
+        Name of the column containing effective temperature (K).
+    logg_col : str, default 'logg_gspphot'
+        Name of the column containing surface gravity (log g).
+    feh_col : str, default 'mh_gspphot'
+        Name of the column containing metallicity [M/H] or [Fe/H].
+    g_mag_col : str, default 'phot_g_mean_mag'
+        Name of the column containing Gaia G magnitudes.
+    bp_mag_col : str, default 'phot_bp_mean_mag'
+        Name of the column containing Gaia BP magnitudes.
+    rp_mag_col : str, default 'phot_rp_mean_mag'
+        Name of the column containing Gaia RP magnitudes.
+    star_name_col : str, default 'Star'
+        Name of the column containing star identifiers.
+    vel : float, default 1.0
+        Microturbulent velocity [km/s] for PHOENIX models.
+    s : float, default 1.0
+        Size parameter for RadialGrid2 objects.
+    n_radial_points : int, default 100
+        Number of radial grid points from center to limb.
+        
+    Returns
+    -------
+    star_grids : dict
+        Dictionary mapping star names to RadialGrid2 objects.
+        Keys are star names (str), values are RadialGrid2 instances with
+        PHOENIX limb-darkening profiles and absolute intensities.
+        
+    Raises
+    ------
+    ValueError
+        If DataFrame is invalid or required columns are missing.
+    TypeError
+        If input is not a pandas DataFrame.
+        
+    Notes
+    -----
+    The function performs the following operations for each star:
+    1. Extracts stellar parameters (Teff, log g, [Fe/H])
+    2. Matches to closest PHOENIX model using match_phoenix_parameters
+    3. Gets limb-darkening functions for each SATLAS band (B, V, R, I, H, K)
+    4. Creates radial intensity grid using the limb-darkening functions
+    5. Calculates absolute flux densities from Gaia magnitudes
+    6. Creates RadialGrid2 object with PHOENIX profiles and absolute intensities
+    
+    The SATLAS bands are mapped to PHOENIX filters as follows:
+    - B band (4450 Å) → PHOENIX 'B' filter
+    - V band (5510 Å) → PHOENIX 'V' filter
+    - R band (6580 Å) → PHOENIX 'R' filter
+    - I band (8060 Å) → PHOENIX 'I' filter
+    - H band (16300 Å) → PHOENIX 'H' filter
+    - K band (21900 Å) → PHOENIX 'K' filter
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df = pd.read_csv('extended_data_table_2.csv')
+    >>> star_grids = create_radial_from_gaia(df)
+    >>>
+    >>> # Access specific star
+    >>> hd_360 = star_grids['HD 360']
+    >>> print(f"HD 360 wavelength range: {hd_360.get_spectrum_info()['wavelength_range_angstrom']}")
+    >>>
+    >>> # Calculate visibility
+    >>> import numpy as np
+    >>> baseline = np.array([100.0, 0.0, 0.0])  # 100m E-W baseline
+    >>> frequency = SPEED_OF_LIGHT / (5510e-10)  # V band frequency
+    >>> visibility = hd_360.V(frequency, baseline)
+    >>> print(f"Visibility: {abs(visibility):.3f}")
+    """
+    from LD_phoenix import LimbDarkening
+    from gaia_phoenix import match_phoenix_parameters
+    
+    # Validate input DataFrame
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Input must be a pandas DataFrame")
+    
+    if df.empty:
+        raise ValueError("DataFrame is empty")
+    
+    # Check for required columns
+    required_cols = [star_name_col, teff_col, logg_col, g_mag_col, bp_mag_col, rp_mag_col]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Initialize LimbDarkening class
+    ld = LimbDarkening()
+    
+    # Create wavelength grid for SATLAS bands
+    wavelengths = np.array([SATLAS_BANDS[band]['wavelength'] for band in SATLAS_BANDS.keys()])
+    n_wavelengths = len(wavelengths)
+    
+    # Map SATLAS bands to PHOENIX filters
+    satlas_to_phoenix = {
+        'B': 'B',
+        'V': 'V',
+        'R': 'R',
+        'I': 'I',
+        'H': 'H',
+        'K': 'K'
+    }
+    
+    # Create radial grid (normalized, 0 to 1)
+    r_normalized = np.linspace(0, 1, n_radial_points, dtype=np.float64)
+    
+    # Create RadialGrid2 objects for each star
+    star_grids = {}
+    skipped_stars = []
+    
+    for idx, row in df.iterrows():
+        star_name = row[star_name_col]
+        
+        # Check for missing star name
+        if pd.isna(star_name):
+            skipped_stars.append(f"Row {idx}")
+            continue
+        
+        # Check for required parameter columns
+        required_values = [row[teff_col], row[logg_col], row[g_mag_col], row[bp_mag_col], row[rp_mag_col]]
+        if any(pd.isna(val) for val in required_values):
+            skipped_stars.append(star_name)
+            continue
+        
+        try:
+            # Extract stellar parameters
+            teff = row[teff_col]
+            logg = row[logg_col]
+            feh = row[feh_col] if feh_col in df.columns and not pd.isna(row[feh_col]) else 0.0
+            
+            # Match to closest PHOENIX model
+            teff_phoenix, logg_phoenix, feh_phoenix = match_phoenix_parameters(teff, logg, feh)
+            
+            print(f"\n{star_name}:")
+            print(f"  Gaia params: Teff={teff:.0f}K, logg={logg:.2f}, [Fe/H]={feh:.2f}")
+            print(f"  PHOENIX match: Teff={teff_phoenix:.0f}K, logg={logg_phoenix:.2f}, [Fe/H]={feh_phoenix:.2f}")
+            
+            # Create intensity array: shape (n_wavelengths, n_radial_points)
+            I_nu_p = np.zeros((n_wavelengths, n_radial_points))
+            
+            # Get limb-darkening function for each band
+            for i, band in enumerate(SATLAS_BANDS.keys()):
+                phoenix_filter = satlas_to_phoenix[band]
+                
+                # Get limb-darkening function from PHOENIX
+                ld_func = ld.get_limb_darkening_function_radial(
+                    logg_phoenix, teff_phoenix, feh_phoenix, vel, phoenix_filter
+                )
+                
+                # Evaluate limb-darkening function at radial grid points
+                I_nu_p[i, :] = ld_func(r_normalized)
+            
+            # Calculate absolute flux densities for this star at SATLAS wavelengths
+            star_flux_densities = calculate_star_intensity_at_satlas_wavelengths(
+                row, g_mag_col, bp_mag_col, rp_mag_col
+            )
+            
+            # We need to convert r_normalized to angular coordinates (radians)
+            # Get angular diameter from the DataFrame if available
+            if 'LD' in df.columns and not pd.isna(row['LD']):
+                # LD is limb-darkened angular diameter in mas
+                max_radius_mas = float(row['LD']) / 2.0  # Convert diameter to radius
+            else:
+                # Use a typical stellar radius estimate as fallback
+                max_radius_mas = 0.5  # mas, typical for red clump stars
+            
+            p_rays = r_normalized * max_radius_mas * MAS_TO_RAD
+            p_rays = p_rays.astype(np.float64)
+            
+            # Create RadialGrid2 object with PHOENIX limb-darkening and absolute intensities
+            radial_grid = RadialGrid2(
+                specific_flux=star_flux_densities,
+                lambdas=wavelengths,
+                I_nu_p=I_nu_p,
+                p_rays=p_rays,
+                s=s
+            )
+            
+            # Store in dictionary
+            star_grids[star_name] = radial_grid
+            
+        except Exception as e:
+            import traceback
+            print(f"\nDetailed error for {star_name}:")
+            print(traceback.format_exc())
+            warnings.warn(f"Error processing {star_name}: {str(e)}")
+            skipped_stars.append(star_name)
+            continue
+    
+    # Report summary
+    total_stars = len(df)
+    successful_stars = len(star_grids)
+    
+    print(f"\n{'='*60}")
+    print(f"Successfully created RadialGrid2 objects for {successful_stars}/{total_stars} stars")
+    if skipped_stars:
+        print(f"Skipped {len(skipped_stars)} stars due to missing/invalid data: {skipped_stars[:5]}{'...' if len(skipped_stars) > 5 else ''}")
+    
+    return star_grids
+
+
 
 if __name__ == "__main__":
     # Example usage and testing

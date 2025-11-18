@@ -60,6 +60,12 @@ class LimbDarkening:
                 skiprows=0
             )
             
+            # Convert coefficient columns to float, coercing errors to NaN
+            for filter_name in self.filters:
+                for coeff in ['a1', 'a2', 'a3', 'a4']:
+                    col_name = f'{coeff}_{filter_name}'
+                    self.coefficients[col_name] = pd.to_numeric(self.coefficients[col_name], errors='coerce')
+            
         except FileNotFoundError:
             raise FileNotFoundError(f"Data file not found: {self.data_file_path}")
         except Exception as e:

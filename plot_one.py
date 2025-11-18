@@ -15,7 +15,7 @@ import sys
 sys.path.append('/Users/akim/Projects/g2')
 
 from gaia_uniform_disk import create_uniform_disk_from_gaia
-from gaia_satlas import create_radial_grid_from_satlas, get_radial_grid_properties
+from gaia_satlas import create_radial_grid_from_satlas, create_radial_from_gaia, get_radial_grid_properties
 
 from gaia_zeropoint import (
     GAIA_G_EFFECTIVE_WAVELENGTH,
@@ -184,6 +184,35 @@ def main():
     df = pd.read_csv('extended_data_table_2.csv')
     print(f"✓ Loaded {len(df)} stars")
     
+    # Load stellar parameters from Table1.dat
+    print("Loading stellar parameters from Table1.dat...")
+    table1_data = []
+    with open('data/Table1.dat', 'r') as f:
+        lines = f.readlines()
+        for line in lines[1:]:  # Skip header
+            fields = line.split('\t')
+            if len(fields) >= 5:
+                hd_name = f"HD {fields[0].strip()}"
+                log_teff_str = fields[2].split('±')[0].strip()
+                log_teff = float(log_teff_str)
+                teff = 10**log_teff
+                logg_str = fields[3].split('±')[0].strip()
+                logg = float(logg_str)
+                feh_str = fields[4].split('±')[0].strip().replace('−', '-')
+                feh = float(feh_str)
+                table1_data.append({
+                    'Star': hd_name,
+                    'teff_gspphot': teff,
+                    'logg_gspphot': logg,
+                    'mh_gspphot': feh
+                })
+    
+    df_table1 = pd.DataFrame(table1_data)
+    
+    # Merge with Gaia data
+    df = df.merge(df_table1, on='Star', how='left')
+    print(f"✓ Merged stellar parameters for {df['teff_gspphot'].notna().sum()} stars")
+    
     # # Select HD 360 for plotting
     # star_name = 'HD 360'
     # if star_name not in df['Star'].values:
@@ -203,7 +232,13 @@ def main():
     
     # Path to SATLAS data file
     satlas_file = 'data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt'
-    radial_grid = create_radial_grid_from_satlas(satlas_file, first_star_row)
+    print("Creating RadialGrid from SATLAS data...")
+    radial_grid_satlas = create_radial_grid_from_satlas(satlas_file, first_star_row)
+    
+    # Create RadialGrid from PHOENIX models
+    print("Creating RadialGrid from PHOENIX models...")
+    radial_grids_phoenix = create_radial_from_gaia(df)
+    first_radial_phoenix = radial_grids_phoenix[first_star_name]
 
 
     # star_disk = star_disks[star_name]
@@ -241,8 +276,15 @@ def main():
             wavelengths, frequencies, band_names
         )
 
-        results_radial = calculate_parameters_for_star(
-            star_name, radial_grid, observation, baseline_lengths, 
+        # Calculate for SATLAS radial grid
+        results_radial_satlas = calculate_parameters_for_star(
+            star_name, radial_grid_satlas, observation, baseline_lengths,
+            wavelengths, frequencies, band_names
+        )
+        
+        # Calculate for PHOENIX radial grid
+        results_radial_phoenix = calculate_parameters_for_star(
+            star_name, first_radial_phoenix, observation, baseline_lengths,
             wavelengths, frequencies, band_names
         )
 
@@ -260,25 +302,37 @@ def main():
         
         # Create plots
         print(f"\nCreating plots...")
-        fig = plot_star_parameters(star_name, results, observation)
-
-        # Save plot
-        output_filename = f'plot_one_{star_name.replace(" ", "_")}.pdf'
-        fig.savefig(output_filename, bbox_inches='tight', dpi=300)
-
-        output_filename = f'plot_one_{star_name.replace(" ", "_radial_")}.pdf'
-        fig_radial = plot_star_parameters(star_name, results_radial, observation)
-        fig_radial.savefig(output_filename, bbox_inches='tight', dpi=300)
-
-        plt.close(fig)
-
-
         
-        print(f"✓ Plot saved to {output_filename}")
+        # Plot for uniform disk
+        fig_uniform = plot_star_parameters(star_name, results, observation)
+        output_filename_uniform = f'plot_one_{star_name.replace(" ", "_")}_uniform.pdf'
+        fig_uniform.savefig(output_filename_uniform, bbox_inches='tight', dpi=300)
+        print(f"✓ Uniform disk plot saved to {output_filename_uniform}")
+
+        # Plot for SATLAS radial grid
+        fig_radial_satlas = plot_star_parameters(star_name + " (SATLAS)", results_radial_satlas, observation)
+        output_filename_satlas = f'plot_one_{star_name.replace(" ", "_")}_satlas.pdf'
+        fig_radial_satlas.savefig(output_filename_satlas, bbox_inches='tight', dpi=300)
+        print(f"✓ SATLAS radial plot saved to {output_filename_satlas}")
+        
+        # Plot for PHOENIX radial grid
+        fig_radial_phoenix = plot_star_parameters(star_name + " (PHOENIX)", results_radial_phoenix, observation)
+        output_filename_phoenix = f'plot_one_{star_name.replace(" ", "_")}_phoenix.pdf'
+        fig_radial_phoenix.savefig(output_filename_phoenix, bbox_inches='tight', dpi=300)
+        print(f"✓ PHOENIX radial plot saved to {output_filename_phoenix}")
+
+        plt.close(fig_uniform)
+        plt.close(fig_radial_satlas)
+        plt.close(fig_radial_phoenix)
+
+
         
         print(f"\n" + "=" * 60)
         print("Single star plotting completed successfully!")
-        print(f"Generated plot for {star_name} saved to {output_filename}")
+        print(f"Generated 3 plots for {star_name}:")
+        print(f"  - Uniform disk: {output_filename_uniform}")
+        print(f"  - SATLAS radial: {output_filename_satlas}")
+        print(f"  - PHOENIX radial: {output_filename_phoenix}")
         print("=" * 60)
         break
 
