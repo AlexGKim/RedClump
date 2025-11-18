@@ -66,41 +66,32 @@ def _phoenix_intensity(mu: np.ndarray, coeffs: pd.Series) -> np.ndarray:
 # ----------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------
+import scipy.special  #  <-- add this import at the top of the file
+
 def plot_intensity(
     filter_name: str,
     satlas_path: str | pathlib.Path,
     table12_path: str | pathlib.Path,
     *,
     mu_grid: int = 200,
+    u_max: float = 4,          # highest spatial frequency (in 1/mas)
+    n_u: int = 200,              # number of u points
     ax: plt.Axes | None = None,
     save_as: str | pathlib.Path | None = None,
     show: bool = True,
 ) -> plt.Axes:
     """
-    Plot the Phoenix intensity profile together with the Satlas reference.
+    Plot the Phoenix intensity profile together with the Satlas reference
+    **and** the visibility curve obtained from the Hankel transform.
 
     Parameters
     ----------
-    filter_name : str
-        One of ``u v b y U B V R I J H K`` (case‑sensitive). Determines which
-        set of a‑coefficients to use.
-    satlas_path : Path‑like
-        Path to the Satlas intensity file (two‑column text file).
-    table12_path : Path‑like
-        Path to ``table12.dat``.
-    mu_grid : int, optional
-        Number of μ points for the Phoenix curve (default 200).
-    ax : matplotlib Axes, optional
-        Existing Axes to draw on; otherwise a new figure is created.
-    save_as : Path‑like, optional
-        If supplied, the figure is saved to this filename.
-    show : bool, optional
-        Call ``plt.show()`` at the end if True.
-
-    Returns
-    -------
-    matplotlib.axes.Axes
-        The Axes containing the plot.
+    filter_name, satlas_path, table12_path, mu_grid, ax, save_as, show
+        as before.
+    u_max : float, optional
+        Maximum spatial frequency (units: 1/mas). Default 0.5 mas⁻¹.
+    n_u : int, optional
+        Number of points in the u‑grid.
     """
     # ------------------------------------------------------------------
     # 1) Load coefficients
@@ -116,68 +107,116 @@ def plot_intensity(
         )
 
     from gaia_phoenix import match_phoenix_parameters
-    teff = 4800
-    logg = 2.5
-    feh = 1.0
+    teff, logg, feh = 4800, 2.5, 1.0
     teff_phoenix, logg_phoenix, feh_phoenix = match_phoenix_parameters(teff, logg, feh)
-    
-    ans = coeffs_df[(coeffs_df["Teff"] == teff_phoenix) & (coeffs_df["logg"] == logg_phoenix)]
 
-    # Take the first row (or you could select by logg/Teff etc.).
-    coeff_row = ans[needed]
-    # Rename to generic a1‑a4 so the intensity helper can use a fixed key set.
-    coeff_row.columns = ["a1", "a2", "a3", "a4"]
-
+    # rows that match the Phoenix atmospheric parameters
+    mask = (
+        (coeffs_df["Teff"] == teff_phoenix) &
+        (coeffs_df["logg"] == logg_phoenix)  # column name may be "FeH" or "feh"
+    )
+    if not mask.any():
+        raise ValueError(
+            f'No entry in table12.dat for Teff={teff_phoenix}, '
+            f'logg={logg_phoenix}, FeH={feh_phoenix}.'
+        )
+    # keep only the four needed columns and grab the first matching row
+    coeff_row: pd.Series = coeffs_df.loc[mask, needed].iloc[0]   # Series
+    coeff_row.index = ["a1", "a2", "a3", "a4"]                  # rename to generic keys
 
     # ------------------------------------------------------------------
-    # 3) Load Satlas data (first two columns: μ and I/I0_H)
+    # 2) Load Satlas data
     # ------------------------------------------------------------------
     satlas_df = pd.read_csv(
         pathlib.Path(satlas_path),
-        delim_whitespace=True,
+        sep=r'\s+',           # replaces deprecated delim_whitespace
         header=0,
         comment="#",
     )
 
-    angle = satlas_df["r(mas)"].values * (np.pi / 180 / 3600 / 1000)  # radians
+    # ------------------------------------------------------------------
+    # 3) Build μ grid and compute Phoenix profile
+    # ------------------------------------------------------------------
+    # Convert the angular radius (mas) → radians
+    theta_rad = satlas_df["r(mas)"].values * (np.pi / 180 / 3600 / 1000)
+    # μ = cos(θ) for a uniform‐disk geometry
+    mu = np.sqrt(1.0 - (distance_m * theta_rad / radius_m) ** 2)
 
-    # Interpolate Satlas onto the same μ grid for a clean overlay.
-    # satlas_I = np.interp(mu, satlas_df["r(mas)"].values, satlas_df["I/I0_H"].values)
+    phoenix_I = _phoenix_intensity(mu, coeff_row)                     # shape (N,)
 
     # ------------------------------------------------------------------
-    # 2) Build μ grid and compute Phoenix profile
+    # 4) Prepare the second‑subplot: visibility vs. spatial frequency u
     # ------------------------------------------------------------------
-    
-    mu = np.sqrt(1- angle**2/radius_m**2*(distance_m**2))
+    # u‑grid (1/mas)
+    u_grid = np.linspace(0.0, u_max, n_u)
 
-    phoenix_I = _phoenix_intensity(mu, coeff_row.iloc[0])
+    # scaled rays = the same radial coordinate used for the Hankel transform
+    scaled_rays = satlas_df["r(mas)"].values.astype(float)   # (N,)
 
+    # Containers for the two visibility curves
+    vis_phoenix = np.empty_like(u_grid)
+    vis_satlas  = np.empty_like(u_grid)
+
+    # Pre‑compute the denominator (the “zero‑baseline” integral) – common to both
+    denom_phoenix = np.trapezoid(phoenix_I * scaled_rays, scaled_rays)
+    denom_satlas  = np.trapezoid(satlas_df["I/I0_H"].values * scaled_rays, scaled_rays)
+
+    for i, u in enumerate(u_grid):
+        J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)   # J0(2πuρ)
+
+        # numerator for Phoenix
+        num_pho = np.trapezoid(phoenix_I * J0 * scaled_rays, scaled_rays)
+        vis_phoenix[i] = num_pho / denom_phoenix
+
+        # numerator for Satlas
+        num_sat = np.trapezoid(satlas_df["I/I0_H"].values * J0 * scaled_rays,
+                           scaled_rays)
+        vis_satlas[i] = num_sat / denom_satlas
 
     # ------------------------------------------------------------------
-    # 4) Plot
+    # 5) Plot (two sub‑plots)
     # ------------------------------------------------------------------
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 4))
-    else:
+    if ax is None:                     # create a new figure with two axes
+        fig, (ax_int, ax_vis) = plt.subplots(
+            1, 2, figsize=(12, 4), constrained_layout=True
+        )
+    else:                               # user supplied a single Axes → make a twin
         fig = ax.figure
+        ax_int = ax
+        ax_vis = fig.add_axes([0.55, 0.15, 0.4, 0.75])   # manual placement
 
-    ax.plot(satlas_df["r(mas)"], phoenix_I, label="Phoenix", color="tab:blue")
-    ax.plot(satlas_df["r(mas)"], satlas_df["I/I0_H"], label="Satlas (H)", color="tab:red", linestyle="--")
-    ax.set_xlabel(r"r(mas)")
-    ax.set_ylabel(r"$I(\mu)/I(1)$")
-    ax.set_title(f"Intensity profile – filter {filter_name}")
-    # ax.set_xlim(0, 1)
-    # ax.set_ylim(0, 1.05)
-    ax.grid(True, which="both", ls=":", alpha=0.6)
-    ax.legend()
+    # ---- intensity ----------------------------------------------------
+    ax_int.plot(satlas_df["r(mas)"], phoenix_I,
+                label="Phoenix", color="tab:blue")
+    ax_int.plot(satlas_df["r(mas)"], satlas_df["I/I0_H"],
+                label="Satlas (H)", color="tab:red", linestyle="--")
+    ax_int.set_xlabel(r"$r\;(\mathrm{mas})$")
+    ax_int.set_ylabel(r"$I(\mu)/I(1)$")
+    ax_int.set_title(f"Intensity – filter {filter_name}")
+    ax_int.grid(True, which="both", ls=":", alpha=0.6)
+    ax_int.legend()
 
+    # ---- visibility ----------------------------------------------------
+    ax_vis.plot(u_grid, vis_phoenix**2,
+                label="Phoenix", color="tab:blue")
+    ax_vis.plot(u_grid, vis_satlas,
+                label="Satlas (H)", color="tab:red", linestyle="--")
+    ax_vis.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
+    ax_vis.set_ylabel(r"Visibility Squared")
+    ax_vis.set_title("Visibility (Hankel transform)")
+    ax_vis.grid(True, which="both", ls=":", alpha=0.6)
+    ax_vis.legend()
+
+    # ------------------------------------------------------------------
+    # 6) Save / show
+    # ------------------------------------------------------------------
     if save_as:
         plt.savefig(save_as, bbox_inches="tight", dpi=150)
-
     if show:
         plt.show()
 
-    return ax
+    # Returning the intensity axis is kept for backward compatibility.
+    return ax_int
 
 
 # ----------------------------------------------------------------------
