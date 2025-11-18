@@ -30,32 +30,105 @@ class LimbDarkening:
         """Load and parse the coefficient data from table12.dat"""
         try:
             # Read the fixed-width format file
+            # Based on the byte-by-byte description from ReadMe.txt
             colspecs = [
                 (0, 5),    # logg
-                (6, 12),   # Teff  
+                (6, 12),   # Teff
                 (13, 17),  # Z
                 (18, 22),  # Vel
             ]
             
             # Add column specifications for a1, a2, a3, a4 coefficients for each filter
-            start_col = 23
-            for i, filter_name in enumerate(self.filters):
-                for coeff in ['a1', 'a2', 'a3', 'a4']:
-                    colspecs.append((start_col, start_col + 12))
-                    start_col += 12
+            # Following the exact byte positions from the format description
+            # a1 coefficients: bytes 24-35, 37-48, 50-61, 63-74, 76-87, 89-100, 102-113, 115-126, 128-139, 141-152, 154-165, 167-178
+            a1_positions = [
+                (23, 35),   # a1u
+                (36, 48),   # a1v
+                (49, 61),   # a1b
+                (62, 74),   # a1y
+                (75, 87),   # a1U
+                (88, 100),  # a1B
+                (101, 113), # a1V
+                (114, 126), # a1R
+                (127, 139), # a1I
+                (140, 152), # a1J
+                (153, 165), # a1H
+                (166, 178), # a1K
+            ]
             
-            # Add mu_cri and CHI2 columns (we'll skip these for now)
+            # a2 coefficients: bytes 180-191, 193-204, etc.
+            a2_positions = [
+                (179, 191),  # a2u
+                (192, 204),  # a2v
+                (205, 217),  # a2b
+                (218, 230),  # a2y
+                (231, 243),  # a2U
+                (244, 256),  # a2B
+                (257, 269),  # a2V
+                (270, 282),  # a2R
+                (283, 295),  # a2I
+                (296, 308),  # a2J
+                (309, 321),  # a2H
+                (322, 334),  # a2K
+            ]
+            
+            # a3 coefficients: bytes 336-347, 349-360, etc.
+            a3_positions = [
+                (335, 347),  # a3u
+                (348, 360),  # a3v
+                (361, 373),  # a3b
+                (374, 386),  # a3y
+                (387, 399),  # a3U
+                (400, 412),  # a3B
+                (413, 425),  # a3V
+                (426, 438),  # a3R
+                (439, 451),  # a3I
+                (452, 464),  # a3J
+                (465, 477),  # a3H
+                (478, 490),  # a3K
+            ]
+            
+            # a4 coefficients: bytes 492-503, 505-516, etc.
+            a4_positions = [
+                (491, 503),  # a4u
+                (504, 516),  # a4v
+                (517, 529),  # a4b
+                (530, 542),  # a4y
+                (543, 555),  # a4U
+                (556, 568),  # a4B
+                (569, 581),  # a4V
+                (582, 594),  # a4R
+                (595, 607),  # a4I
+                (608, 620),  # a4J
+                (621, 633),  # a4H
+                (634, 646),  # a4K
+            ]
+            
+            # Add all coefficient positions
+            for pos in a1_positions:
+                colspecs.append(pos)
+            for pos in a2_positions:
+                colspecs.append(pos)
+            for pos in a3_positions:
+                colspecs.append(pos)
+            for pos in a4_positions:
+                colspecs.append(pos)
             
             # Create column names
             col_names = ['logg', 'Teff', 'Z', 'Vel']
             for filter_name in self.filters:
-                for coeff in ['a1', 'a2', 'a3', 'a4']:
-                    col_names.append(f'{coeff}_{filter_name}')
+                col_names.append(f'a1_{filter_name}')
+            for filter_name in self.filters:
+                col_names.append(f'a2_{filter_name}')
+            for filter_name in self.filters:
+                col_names.append(f'a3_{filter_name}')
+            for filter_name in self.filters:
+                col_names.append(f'a4_{filter_name}')
             
             # Read the file
             self.coefficients = pd.read_fwf(
                 self.data_file_path,
-                colspecs=colspecs[:len(col_names)],
+                colspecs=colspecs,
                 names=col_names,
                 skiprows=0
             )
