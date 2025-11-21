@@ -210,7 +210,7 @@ def plot_intensity(
 
     # ---- intensity ----------------------------------------------------
     ax_int.plot(satlas_df["r(mas)"], phoenix_I,
-                label="Phoenix", color="tab:blue")
+                label="PHOENIX", color="tab:blue")
     ax_int.plot(satlas_df["r(mas)"], satlas_df["I/I0_H"],
                 label="SATLAS", color="tab:red", linestyle="--")
     ax_int.set_xlabel(r"$r\;(\mathrm{mas})$")
@@ -219,8 +219,12 @@ def plot_intensity(
     ax_int.legend()
 
     # ---- visibility ----------------------------------------------------
+    zeta_grid = np.pi * u_grid * 2 * rmas_max  # convert to 1/rad
+    print(u_grid)
+    print(rmas_max)
+
     ax_vis.plot(u_grid, vis_phoenix**2,
-                label="Phoenix", color="tab:blue")
+                label="PHOENIX", color="tab:blue")
     ax_vis.plot(u_grid, vis_satlas**2,
                 label="SATLAS", color="tab:red", linestyle="--")
     ax_vis.set_ylabel(r"$|V|^2$")
@@ -237,6 +241,7 @@ def plot_intensity(
     ax_diff.set_ylabel(r"$\Delta|V|^2$")
     ax_diff.grid(True, which="both", ls=":", alpha=0.6)
     ax_diff.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+    ax_diff.yaxis.get_offset_text().set_position((-0.1, -1))  # Move offset to left
 
     # ------------------------------------------------------------------
     # 6) Save / show
