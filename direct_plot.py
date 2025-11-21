@@ -40,7 +40,7 @@ distance_m = distance_pc * PARSEC_M
 # ----------------------------------------------------------------------
 # Helper: compute the Phoenix intensity for a given filter
 # ----------------------------------------------------------------------
-def _phoenix_intensity(mu: np.ndarray, coeffs: pd.Series) -> np.ndarray:
+def _phoenix_intensity(mu2: np.ndarray, coeffs: pd.Series) -> np.ndarray:
     """
     Evaluate the Phoenix limb‑darkening law.
 
@@ -56,11 +56,15 @@ def _phoenix_intensity(mu: np.ndarray, coeffs: pd.Series) -> np.ndarray:
     ndarray
         Normalised intensity I(μ)/I(1).
     """
+    ans = np.zeros(len(mu2))
+    w = mu2 >= 0.0
+    mu = np.sqrt(mu2[w])
     a1, a2, a3, a4 = coeffs[["a1", "a2", "a3", "a4"]].values
     # μ^{k/2} for k = 1..4
     mu_pow = np.stack([mu ** (0.5 * k) for k in range(1, 5)], axis=0)
     term = np.dot(np.array([a1, a2, a3, a4]), (1.0 - mu_pow))
-    return 1.0 - term
+    ans[w] = 1.0 - term
+    return ans
 
 
 # ----------------------------------------------------------------------
@@ -74,7 +78,7 @@ def plot_intensity(
     table12_path: str | pathlib.Path,
     *,
     mu_grid: int = 200,
-    u_max: float = 4,          # highest spatial frequency (in 1/mas)
+    u_max: float = 1,          # highest spatial frequency (in 1/mas)
     n_u: int = 200,              # number of u points
     ax: plt.Axes | None = None,
     save_as: str | pathlib.Path | None = None,
@@ -134,15 +138,24 @@ def plot_intensity(
         comment="#",
     )
 
+    # Add a row of zeros to extenend the profile beyond the radius
+    tr_max = 1.0000001 * radius_m/distance_m
+    rmas_max = tr_max * (180 / np.pi) * 3600 * 1000
+    zero_row = pd.Series(0.0, index=satlas_df.columns)
+    zero_row["r(mas)"] = rmas_max
+    satlas_df = pd.concat([satlas_df, zero_row.to_frame().T], ignore_index=True)
+
+
     # ------------------------------------------------------------------
     # 3) Build μ grid and compute Phoenix profile
     # ------------------------------------------------------------------
     # Convert the angular radius (mas) → radians
     theta_rad = satlas_df["r(mas)"].values * (np.pi / 180 / 3600 / 1000)
     # μ = cos(θ) for a uniform‐disk geometry
-    mu = np.sqrt(1.0 - (distance_m * theta_rad / radius_m) ** 2)
+    # mu = np.sqrt(1.0 - (distance_m * theta_rad / radius_m) ** 2)
+    mu2 = 1.0 - (distance_m * theta_rad / radius_m) ** 2
 
-    phoenix_I = _phoenix_intensity(mu, coeff_row)                     # shape (N,)
+    phoenix_I = _phoenix_intensity(mu2, coeff_row)                     # shape (N,)
 
     # ------------------------------------------------------------------
     # 4) Prepare the second‑subplot: visibility vs. spatial frequency u
@@ -189,21 +202,20 @@ def plot_intensity(
     ax_int.plot(satlas_df["r(mas)"], phoenix_I,
                 label="Phoenix", color="tab:blue")
     ax_int.plot(satlas_df["r(mas)"], satlas_df["I/I0_H"],
-                label="Satlas (H)", color="tab:red", linestyle="--")
+                label="SATLAS", color="tab:red", linestyle="--")
     ax_int.set_xlabel(r"$r\;(\mathrm{mas})$")
-    ax_int.set_ylabel(r"$I(\mu)/I(1)$")
-    ax_int.set_title(f"Intensity – filter {filter_name}")
+    ax_int.set_ylabel(r"$I(r)/I(0)$")
     ax_int.grid(True, which="both", ls=":", alpha=0.6)
     ax_int.legend()
 
     # ---- visibility ----------------------------------------------------
     ax_vis.plot(u_grid, vis_phoenix**2,
                 label="Phoenix", color="tab:blue")
-    ax_vis.plot(u_grid, vis_satlas,
-                label="Satlas (H)", color="tab:red", linestyle="--")
+    ax_vis.plot(u_grid, vis_satlas**2,
+                label="SATLAS", color="tab:red", linestyle="--")
     ax_vis.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
-    ax_vis.set_ylabel(r"Visibility Squared")
-    ax_vis.set_title("Visibility (Hankel transform)")
+    ax_vis.set_ylabel(r"$|V|^2$")
+    ax_vis.set_yscale("log")
     ax_vis.grid(True, which="both", ls=":", alpha=0.6)
     ax_vis.legend()
 
@@ -211,7 +223,7 @@ def plot_intensity(
     # 6) Save / show
     # ------------------------------------------------------------------
     if save_as:
-        plt.savefig(save_as, bbox_inches="tight", dpi=150)
+        plt.savefig(save_as, bbox_inches="tight")
     if show:
         plt.show()
 
@@ -227,7 +239,7 @@ if __name__ == "__main__":
         filter_name="H",
         satlas_path="data/output_ld-satlas_1762763642809/ld_df.txt",
         table12_path="data/phoenix/table12.dat",
-        save_as="phoenix_vs_satlas_H.png",
+        save_as="phoenix_vs_satlas_H.pdf",
         show=False,
     )
-    print("Plot saved as phoenix_vs_satlas_H.png")
+    print("Plot saved as phoenix_vs_satlas_H.pdf")
