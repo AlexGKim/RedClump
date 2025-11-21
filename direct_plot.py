@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from read_table12 import read_table12
+import scipy.special
 
 
 RSUN_M   = 6.957_000_000e8   # metres per solar radius
@@ -70,15 +71,13 @@ def _phoenix_intensity(mu2: np.ndarray, coeffs: pd.Series) -> np.ndarray:
 # ----------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------
-import scipy.special  #  <-- add this import at the top of the file
-
 def plot_intensity(
     filter_name: str,
     satlas_path: str | pathlib.Path,
     table12_path: str | pathlib.Path,
     *,
     mu_grid: int = 200,
-    u_max: float = 1,          # highest spatial frequency (in 1/mas)
+    u_max: float = 3,          # highest spatial frequency (in 1/mas)
     n_u: int = 200,              # number of u points
     ax: plt.Axes | None = None,
     save_as: str | pathlib.Path | None = None,
@@ -93,7 +92,7 @@ def plot_intensity(
     filter_name, satlas_path, table12_path, mu_grid, ax, save_as, show
         as before.
     u_max : float, optional
-        Maximum spatial frequency (units: 1/mas). Default 0.5 mas⁻¹.
+        Maximum spatial frequency (units: 1/mas). Default 0.5 mas⁻¹.
     n_u : int, optional
         Number of points in the u‑grid.
     """
@@ -170,7 +169,7 @@ def plot_intensity(
     vis_phoenix = np.empty_like(u_grid)
     vis_satlas  = np.empty_like(u_grid)
 
-    # Pre‑compute the denominator (the “zero‑baseline” integral) – common to both
+    # Pre‑compute the denominator (the "zero‑baseline" integral) – common to both
     denom_phoenix = np.trapezoid(phoenix_I * scaled_rays, scaled_rays)
     denom_satlas  = np.trapezoid(satlas_df["I/I0_H"].values * scaled_rays, scaled_rays)
 
@@ -187,16 +186,27 @@ def plot_intensity(
         vis_satlas[i] = num_sat / denom_satlas
 
     # ------------------------------------------------------------------
-    # 5) Plot (two sub‑plots)
+    # 5) Plot (three sub‑plots: intensity on left, visibility and difference stacked on right)
     # ------------------------------------------------------------------
-    if ax is None:                     # create a new figure with two axes
-        fig, (ax_int, ax_vis) = plt.subplots(
-            1, 2, figsize=(12, 4), constrained_layout=True
-        )
-    else:                               # user supplied a single Axes → make a twin
+    if ax is None:
+        fig = plt.figure(figsize=(12, 5))
+        # Create gridspec with 1 column on left, 1 column on right
+        gs = fig.add_gridspec(1, 2, left=0.08, right=0.98, 
+                              bottom=0.11, top=0.9, wspace=0.3)
+        ax_int = fig.add_subplot(gs[0, 0])
+        
+        # Split the right column into two rows
+        gs_right = gs[0, 1].subgridspec(2, 1, hspace=0.05)
+        ax_vis = fig.add_subplot(gs_right[0])
+        ax_diff = fig.add_subplot(gs_right[1], sharex=ax_vis)
+    else:
         fig = ax.figure
         ax_int = ax
-        ax_vis = fig.add_axes([0.55, 0.15, 0.4, 0.75])   # manual placement
+        # You would need to handle the layout manually if ax is provided
+        gs_right = fig.add_gridspec(2, 1, left=0.55, right=0.98, 
+                                    bottom=0.11, top=0.9, hspace=0.05)
+        ax_vis = fig.add_subplot(gs_right[0])
+        ax_diff = fig.add_subplot(gs_right[1], sharex=ax_vis)
 
     # ---- intensity ----------------------------------------------------
     ax_int.plot(satlas_df["r(mas)"], phoenix_I,
@@ -213,11 +223,20 @@ def plot_intensity(
                 label="Phoenix", color="tab:blue")
     ax_vis.plot(u_grid, vis_satlas**2,
                 label="SATLAS", color="tab:red", linestyle="--")
-    ax_vis.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
     ax_vis.set_ylabel(r"$|V|^2$")
-    ax_vis.set_yscale("log")
+    # ax_vis.set_yscale("log")
     ax_vis.grid(True, which="both", ls=":", alpha=0.6)
     ax_vis.legend()
+    ax_vis.tick_params(labelbottom=False)  # Hide x-axis labels on top plot
+
+    # ---- difference in |V|² -----------------------------------------
+    diff_v2 = vis_phoenix**2 - vis_satlas**2
+    ax_diff.plot(u_grid, diff_v2, color="tab:green", linewidth=1.5)
+    ax_diff.axhline(0, color='black', linestyle=':', linewidth=0.8, alpha=0.7)
+    ax_diff.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
+    ax_diff.set_ylabel(r"$\Delta|V|^2$")
+    ax_diff.grid(True, which="both", ls=":", alpha=0.6)
+    ax_diff.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
 
     # ------------------------------------------------------------------
     # 6) Save / show
