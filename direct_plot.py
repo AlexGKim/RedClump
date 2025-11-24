@@ -253,7 +253,136 @@ def plot_intensity(
 
     # Returning the intensity axis is kept for backward compatibility.
     return ax_int
+# ----------------------------------------------------------------------
+# Helper – remove the “I/I0_” prefix that Satlas columns contain
+# ----------------------------------------------------------------------
+def _strip_prefix(col_name: str, prefix: str = "I/I0_") -> str:
+    """
+    Return *col_name* with *prefix* stripped if it starts with that prefix.
+    """
+    if col_name.startswith(prefix):
+        return col_name[len(prefix) :]
+    return col_name
 
+# ----------------------------------------------------------------------
+# New public API --------------------------------------------------------
+# ----------------------------------------------------------------------
+def plot_satlas_vis2_all_bands(
+    satlas_path: str | pathlib.Path,
+    *,
+    u_max: float = 3.0,               # 1/mas
+    n_u: int = 200,
+    radius_m: float = radius_m,       # already defined globally
+    distance_m: float = distance_m,   # already defined globally
+    save_as: str | pathlib.Path = "satlas_vis2_all_bands.pdf",
+    show: bool = True,
+) -> plt.Axes:
+    """
+    Compute and plot |V|² for **every** photometric band present in the
+    Satlas surface‑intensity file.
+
+    Parameters
+    ----------
+    satlas_path
+        Path to ``ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt``.
+    u_max, n_u
+        Spatial‑frequency grid (1/mas).
+    radius_m, distance_m
+        Stellar radius and distance (same geometry used for the Phoenix
+        profile).  Defaults are the module‑level values.
+    save_as
+        Filename for the PDF that will contain the plot.
+    show
+        Call ``plt.show()`` after saving.
+    """
+    # --------------------------------------------------------------
+    # 1) Load the Satlas table
+    # --------------------------------------------------------------
+    satlas_df = pd.read_csv(
+        pathlib.Path(satlas_path),
+        sep=r"\s+",
+        header=0,
+        comment="#",
+    )
+
+    # The first column is the angular radius (mas); everything else is a band.
+    radius_col = "r(mas)"
+    if radius_col not in satlas_df.columns:
+        raise KeyError(f"Expected column '{radius_col}' not found in {satlas_path}")
+
+    band_cols = [c for c in satlas_df.columns if c != radius_col]
+
+    # Extend the profile with a zero‑intensity point just beyond the stellar edge,
+    # mirroring what ``plot_intensity`` does.
+    tr_max = 1.0000001 * radius_m / distance_m
+    rmas_max = tr_max * (180.0 / np.pi) * 3600.0 * 1000.0
+    zero_row = pd.Series(0.0, index=satlas_df.columns)
+    zero_row[radius_col] = rmas_max
+    satlas_df = pd.concat([satlas_df, zero_row.to_frame().T], ignore_index=True)
+
+    # --------------------------------------------------------------
+    # 2) Geometry: scaled radial coordinate (mas) for the Hankel transform
+    # --------------------------------------------------------------
+    scaled_rays = satlas_df[radius_col].values.astype(float)      # (N,)
+
+    # --------------------------------------------------------------
+    # 3) u‑grid
+    # --------------------------------------------------------------
+    u_grid = np.linspace(0.0, u_max, n_u)
+
+    # --------------------------------------------------------------
+    # 4) Allocate results container
+    # --------------------------------------------------------------
+    vis2_dict: dict[str, np.ndarray] = {band: np.empty_like(u_grid) for band in band_cols}
+
+    # --------------------------------------------------------------
+    # 5) Pre‑compute denominators (zero‑baseline integrals) for each band
+    # --------------------------------------------------------------
+    denom = {
+        band: np.trapezoid(satlas_df[band].values * scaled_rays, scaled_rays)
+        for band in band_cols
+    }
+
+    # --------------------------------------------------------------
+    # 6) Loop over u and evaluate the Hankel transform
+    # --------------------------------------------------------------
+    for i, u in enumerate(u_grid):
+        J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)   # J0(2πuρ)
+
+        for band in band_cols:
+            num = np.trapezoid(satlas_df[band].values * J0 * scaled_rays, scaled_rays)
+            vis = num / denom[band]
+            vis2_dict[band][i] = vis ** 2
+
+    # --------------------------------------------------------------
+    # 7) Plot
+    # --------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Use a cycle of colours/linestyles that works for an arbitrary number of bands
+    prop_cycle = plt.rcParams["axes.prop_cycle"]
+    colors = prop_cycle.by_key()["color"]
+    linestyles = ["-", "--", "-.", ":"]
+    for idx, band in enumerate(band_cols):
+        col = colors[idx % len(colors)]
+        ls = linestyles[(idx // len(colors)) % len(linestyles)]
+        label = _strip_prefix(band)          # <-- strip “I/I0_” here
+        ax.plot(u_grid, vis2_dict[band], label=label, color=col, linestyle=ls)
+        # ax.plot(u_grid, vis2_dict[band], label=band, color=col, linestyle=ls)
+
+    ax.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
+    ax.set_ylabel(r"$|V|^{2}$")
+    ax.grid(True, which="both", ls=":", alpha=0.6)
+    ax.legend(title="Band", loc="upper right", fontsize="small", ncol=2)
+
+    # --------------------------------------------------------------
+    # 8) Save / show
+    # --------------------------------------------------------------
+    plt.tight_layout()
+    plt.savefig(save_as, bbox_inches="tight")
+    if show:
+        plt.show()
+    return ax
 
 # ----------------------------------------------------------------------
 # Example usage (run the file directly)
@@ -261,9 +390,19 @@ def plot_intensity(
 if __name__ == "__main__":
     plot_intensity(
         filter_name="H",
-        satlas_path="data/output_ld-satlas_1762763642809/ld_df.txt",
+        satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
         table12_path="data/phoenix/table12.dat",
         save_as="phoenix_vs_satlas_H.pdf",
         show=False,
     )
     print("Plot saved as phoenix_vs_satlas_H.pdf")
+
+        # New all‑band visibility plot
+    plot_satlas_vis2_all_bands(
+        satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
+        u_max=3.0,
+        n_u=300,
+        save_as="satlas_vis2_all_bands.pdf",
+        show=False,
+    )
+    print("All‑band Satlas visibility plot saved as satlas_vis2_all_bands.pdf")
