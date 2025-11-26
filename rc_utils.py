@@ -4,6 +4,82 @@ import re
 from typing import Tuple, Optional
 
 import pandas as pd
+import astropy.units as u
+from astropy.io       import fits
+
+def get_filter_properties_df(vega_spectrum_path='data/alpha_lyr_mod_004.fits'):
+    """
+    Create a DataFrame containing zeropoints and effective wavelengths for 
+    GAIA (G, BP, RP), Johnson (B, V), and 2MASS (H, K) filters.
+    
+    Parameters
+    ----------
+    vega_spectrum_path : str
+        Path to the Vega spectrum FITS file
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: Filter, λ_eff (nm), λ_eff (Å), ν_eff (Hz), 
+        F_ν (W/m²/Hz), F_λ (W/m²/nm)
+    """
+    # Load Vega spectrum
+    with fits.open(vega_spectrum_path) as hdul:
+        data = hdul[1].data
+        lam = data['WAVELENGTH'] * u.AA
+        flux = data['FLUX'] * u.erg/(u.s * u.cm**2 * u.AA)
+    
+    # Convert to F_nu
+    fnu_array = flux.to(u.W/(u.m**2 * u.Hz), 
+                        equivalencies=u.spectral_density(lam))
+    
+    # Physical constants
+    c = 2.99792458e8  # m/s
+    
+    # Define filter effective wavelengths (in nm)
+    filters = {
+        'G': 639.07,    # from the code
+        'BP': 518.26,   # from the code
+        'RP': 782.51,   # from the code
+        'B': 445.0,  # Standard Johnson B
+        'V': 551.0,  # Standard Johnson V
+        'H': 1662.0,   # 2MASS H band
+        'K': 2159.0,    # 2MASS K band (Ks)
+        'I': 806.0,    # Standard Johnson I
+        'R': 658.0     # Standard Johnson R
+    }
+    
+    filter_data = []
+    
+    for filter_name, lambda_eff_nm in filters.items():
+        lambda_eff_m = lambda_eff_nm * 1e-9  # Convert to meters
+        lambda_eff_angstrom = lambda_eff_nm * 10  # Convert to Angstroms
+        nu_eff = c / lambda_eff_m  # Effective frequency in Hz
+        
+        # Interpolate Vega flux at this wavelength
+        f_nu_vega = np.interp(lambda_eff_angstrom, lam.value, fnu_array.value)
+        
+        # Convert to F_lambda (W/m²/nm)
+        # F_lambda = F_nu * (c / lambda^2)
+        f_lambda_vega = f_nu_vega * (c / (lambda_eff_m**2)) * 1e-9  # W/m²/nm
+        
+        filter_data.append({
+            'Filter': filter_name,
+            'λ_eff_nm': lambda_eff_nm,
+            'λ_eff_angstrom': lambda_eff_angstrom,
+            'ν_eff_Hz': nu_eff,
+            'F_ν_vega_W_m2_Hz': f_nu_vega,
+            'F_λ_vega_W_m2_nm': f_lambda_vega,
+            'Vega_mag': 0.0  # Vega is defined as magnitude 0 in all bands
+        })
+    
+    df = pd.DataFrame(filter_data)
+    
+    # Add AB magnitude zeropoints for reference
+    # AB magnitude zeropoint: F_ν = 3631 Jy = 3.631e-23 W/m²/Hz
+    df['F_ν_AB_zeropoint_W_m2_Hz'] = 3.631e-23
+    
+    return df
 
 def read_table_b1(filepath):
     """
@@ -85,7 +161,7 @@ def get_table1_df() -> pd.DataFrame:
     print("Loading stellar parameters from Table1.txt...")
     table1_data = []
     
-    with open('data/Table1.txt', 'r') as f:
+    with open('data/Table1.dat', 'r') as f:
         lines = f.readlines()
         
         # Find header line
@@ -180,11 +256,400 @@ def master_df():
 
     combined_df = gaia_df.merge(table1_df, on='Star', how='inner') \
                      .merge(chara_df, on='Star', how='inner')
+    combined_df.rename(columns={'phot_g_mean_mag': 'G', 'phot_bp_mean_mag': 'BP', 'phot_rp_mean_mag': 'RP', 'H(mag)': 'H'}, inplace=True)
+
     return combined_df
 
   
 
-if __name__ == "__main__":
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import interp1d
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import interp1d
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import interp1d
+
+def plot_stellar_seds(df, filter_df, atlas_filters=['V', 'R', 'I', 'H', 'K'], 
+                      all_filters=['V', 'G', 'BP', 'RP', 'H', 'K'], 
+                      num_stars=None, save_plots=False):
+    """
+    Plot specific flux vs wavelength for stars.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Master dataframe with stellar data
+    filter_df : pd.DataFrame
+        Filter properties dataframe
+    atlas_filters : list
+        Filters from original catalog (plotted as triangles)
+    all_filters : list
+        All filters to plot (plotted as circles/squares)
+    num_stars : int, optional
+        Number of stars to plot (None = all stars)
+    save_plots : bool
+        Whether to save plots to files
+        
+    Returns
+    -------
+    dict
+        Dictionary with star names as keys and atlas filter flux arrays as values
+    """
+    # Create filter lookup dictionary
+    filter_info = {}
+    for _, row in filter_df.iterrows():
+        filter_info[row['Filter']] = {
+            'wavelength': row['λ_eff_nm'],
+            'F_nu_vega': row['F_ν_vega_W_m2_Hz']
+        }
+    
+    # Dictionary to store atlas filter fluxes for each star
+    atlas_flux_results = {}
+    
+    # Limit number of stars if specified
+    stars_to_plot = df.head(num_stars) if num_stars else df
+    
+    # Create subplots
+    n_stars = len(stars_to_plot)
+    n_cols = min(3, n_stars)
+    n_rows = int(np.ceil(n_stars / n_cols))
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 5*n_rows))
+    if n_stars == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+    
+    for idx, (star_idx, star_row) in enumerate(stars_to_plot.iterrows()):
+        star_name = star_row['Star']
+        ax = axes[idx]
+        
+        # Step 1: Collect ALL available magnitudes for interpolation basis
+        available_data = []
+        for filt in df.columns:
+            if filt in filter_info and pd.notna(star_row[filt]):
+                mag = star_row[filt]
+                wavelength = filter_info[filt]['wavelength']
+                f_nu_vega = filter_info[filt]['F_nu_vega']
+                f_nu = f_nu_vega * 10**(-mag / 2.5)
+                available_data.append({
+                    'filter': filt,
+                    'wavelength': wavelength,
+                    'f_nu': f_nu,
+                    'mag': mag
+                })
+        
+        if len(available_data) == 0:
+            ax.text(0.5, 0.5, f'{star_name}\nNo data', 
+                   ha='center', va='center', transform=ax.transAxes)
+            atlas_flux_results[star_name] = np.array([np.nan] * len(atlas_filters))
+            continue
+        
+        # Sort by wavelength for interpolation
+        available_data = sorted(available_data, key=lambda x: x['wavelength'])
+        wave_available = np.array([d['wavelength'] for d in available_data])
+        flux_available = np.array([d['f_nu'] for d in available_data])
+        
+        # Step 2: Create interpolation function if we have multiple points
+        interp_func = None
+        if len(wave_available) > 1:
+            interp_func = interp1d(np.log10(wave_available), np.log10(flux_available), 
+                                  kind='linear', fill_value='extrapolate')
+        
+        # Step 3: Process ATLAS_FILTERS and store results
+        atlas_measured = {'wave': [], 'flux': [], 'filters': []}
+        atlas_interpolated = {'wave': [], 'flux': [], 'filters': []}
+        atlas_flux_vector = []
+        
+        for filt in atlas_filters:
+            if filt not in filter_info:
+                print(f"Warning: Atlas filter {filt} not in filter_info, skipping")
+                atlas_flux_vector.append(np.nan)
+                continue
+                
+            wavelength = filter_info[filt]['wavelength']
+            
+            # Check if we have a direct measurement
+            if filt in star_row.index and pd.notna(star_row[filt]):
+                mag = star_row[filt]
+                f_nu_vega = filter_info[filt]['F_nu_vega']
+                f_nu = f_nu_vega * 10**(-mag / 2.5)
+                atlas_measured['wave'].append(wavelength)
+                atlas_measured['flux'].append(f_nu)
+                atlas_measured['filters'].append(filt)
+                atlas_flux_vector.append(f_nu)
+            elif interp_func is not None:
+                f_nu = 10**interp_func(np.log10(wavelength))
+                atlas_interpolated['wave'].append(wavelength)
+                atlas_interpolated['flux'].append(f_nu)
+                atlas_interpolated['filters'].append(filt)
+                atlas_flux_vector.append(f_nu)
+            else:
+                atlas_flux_vector.append(np.nan)
+        
+        # Store atlas flux vector
+        atlas_flux_results[star_name] = np.array(atlas_flux_vector)
+        
+        # Step 4: Process ALL_FILTERS
+        all_measured = {'wave': [], 'flux': [], 'filters': []}
+        all_interpolated = {'wave': [], 'flux': [], 'filters': []}
+        
+        for filt in all_filters:
+            if filt not in filter_info:
+                print(f"Warning: Filter {filt} not in filter_info, skipping")
+                continue
+            
+            # Skip if already in atlas_filters (to avoid double plotting)
+            if filt in atlas_filters:
+                continue
+                
+            wavelength = filter_info[filt]['wavelength']
+            
+            if filt in star_row.index and pd.notna(star_row[filt]):
+                mag = star_row[filt]
+                f_nu_vega = filter_info[filt]['F_nu_vega']
+                f_nu = f_nu_vega * 10**(-mag / 2.5)
+                all_measured['wave'].append(wavelength)
+                all_measured['flux'].append(f_nu)
+                all_measured['filters'].append(filt)
+            elif interp_func is not None:
+                f_nu = 10**interp_func(np.log10(wavelength))
+                all_interpolated['wave'].append(wavelength)
+                all_interpolated['flux'].append(f_nu)
+                all_interpolated['filters'].append(filt)
+        
+        # Plot ATLAS filters (measured)
+        if len(atlas_measured['wave']) > 0:
+            ax.scatter(atlas_measured['wave'], atlas_measured['flux'], 
+                      s=150, c='green', zorder=4, label='Atlas (measured)', 
+                      edgecolors='black', linewidth=2, marker='^')
+            for i, filt in enumerate(atlas_measured['filters']):
+                ax.annotate(filt, (atlas_measured['wave'][i], atlas_measured['flux'][i]), 
+                           xytext=(5, 8), textcoords='offset points', fontsize=10, 
+                           fontweight='bold', color='green')
+        
+        # Plot ATLAS filters (interpolated)
+        if len(atlas_interpolated['wave']) > 0:
+            ax.scatter(atlas_interpolated['wave'], atlas_interpolated['flux'], 
+                      s=130, c='lightgreen', zorder=3, label='Atlas (interp.)', 
+                      edgecolors='darkgreen', linewidth=1.5, marker='^', alpha=0.7)
+            for i, filt in enumerate(atlas_interpolated['filters']):
+                ax.annotate(filt, (atlas_interpolated['wave'][i], 
+                                  atlas_interpolated['flux'][i]), 
+                           xytext=(5, -12), textcoords='offset points', 
+                           fontsize=9, style='italic', color='darkgreen')
+        
+        # Plot ALL_FILTERS (measured)
+        if len(all_measured['wave']) > 0:
+            ax.scatter(all_measured['wave'], all_measured['flux'], 
+                      s=120, c='red', zorder=3, label='Other (measured)', 
+                      edgecolors='black', linewidth=1.5, marker='o')
+            for i, filt in enumerate(all_measured['filters']):
+                ax.annotate(filt, (all_measured['wave'][i], all_measured['flux'][i]), 
+                           xytext=(5, 5), textcoords='offset points', fontsize=9, 
+                           fontweight='bold', color='red')
+        
+        # Plot ALL_FILTERS (interpolated)
+        if len(all_interpolated['wave']) > 0:
+            ax.scatter(all_interpolated['wave'], all_interpolated['flux'], 
+                      s=100, c='blue', zorder=2, label='Other (interp.)', 
+                      edgecolors='black', linewidth=1.5, marker='s', alpha=0.7)
+            for i, filt in enumerate(all_interpolated['filters']):
+                ax.annotate(filt, (all_interpolated['wave'][i], 
+                                  all_interpolated['flux'][i]), 
+                           xytext=(5, -10), textcoords='offset points', 
+                           fontsize=9, style='italic', color='blue')
+        
+        # Plot smooth interpolation curve
+        if interp_func is not None:
+            wave_smooth = np.logspace(np.log10(wave_available.min()), 
+                                     np.log10(wave_available.max()), 200)
+            flux_smooth = 10**interp_func(np.log10(wave_smooth))
+            ax.plot(wave_smooth, flux_smooth, 'gray', alpha=0.3, 
+                   linewidth=2, linestyle='--', label='SED model')
+        
+        # Formatting
+        ax.set_xlabel('Wavelength (nm)', fontsize=11)
+        ax.set_ylabel(r'$F_\nu$ (W m$^{-2}$ Hz$^{-1}$)', fontsize=11)
+        ax.set_title(f'{star_name}', fontsize=12, fontweight='bold')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3, which='both')
+        ax.legend(loc='best', fontsize=8)
+        
+    # Hide unused subplots
+    for idx in range(n_stars, len(axes)):
+        axes[idx].axis('off')
+    
+    plt.tight_layout()
+    
+    if save_plots:
+        plt.savefig('stellar_seds.png', dpi=300, bbox_inches='tight')
+        print("Plot saved as 'stellar_seds.png'")
+    
+    plt.show()
+    
+    # Print atlas flux results
+    print("\nAtlas Filter Fluxes:")
+    print(f"Filters: {atlas_filters}")
+    for star_name, fluxes in atlas_flux_results.items():
+        print(f"{star_name}: {fluxes}")
+    
+    return atlas_flux_results
+
+def get_stellar_fluxes(df, filter_df, filters=['V', 'R', 'I', 'H', 'K'], verbose=True):
+    """
+    Calculate specific fluxes for all stars in specified filters.
+    Uses measured magnitudes when available, interpolates otherwise.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Master dataframe with stellar data
+    filter_df : pd.DataFrame
+        Filter properties dataframe
+    filters : list
+        List of filters to calculate fluxes for
+    verbose : bool
+        Print progress information
+        
+    Returns
+    -------
+    flux_df : pd.DataFrame
+        DataFrame with columns: Star, filter1_flux, filter2_flux, ...
+        and additional columns for flux_type (measured/interpolated)
+    flux_dict : dict
+        Dictionary with star names as keys and flux arrays as values
+    """
+    if verbose:
+        print(f"Processing {len(df)} stars for {len(filters)} filters...")
+    
+    # Create filter lookup dictionary
+    filter_info = {}
+    for _, row in filter_df.iterrows():
+        filter_info[row['Filter']] = {
+            'wavelength': row['λ_eff_nm'],
+            'F_nu_vega': row['F_ν_vega_W_m2_Hz']
+        }
+    
+    results = []
+    flux_dict = {}
+    
+    # Iterate through all stars
+    for idx in range(len(df)):
+        star_row = df.iloc[idx]
+        star_name = star_row['Star']
+        
+        if verbose and (idx + 1) % 10 == 0:
+            print(f"  Processing star {idx + 1}/{len(df)}: {star_name}")
+        
+        # Collect ALL available magnitudes for interpolation basis
+        available_data = []
+        for col in df.columns:
+            if col in filter_info and pd.notna(star_row[col]):
+                mag = star_row[col]
+                wavelength = filter_info[col]['wavelength']
+                f_nu_vega = filter_info[col]['F_nu_vega']
+                f_nu = f_nu_vega * 10**(-mag / 2.5)
+                available_data.append({
+                    'filter': col,
+                    'wavelength': wavelength,
+                    'f_nu': f_nu,
+                    'mag': mag
+                })
+        
+        # Initialize result row
+        row_data = {'Star': star_name}
+        flux_vector = []
+        flux_types = []
+        
+        if len(available_data) == 0:
+            # No data available
+            for filt in filters:
+                row_data[f'{filt}_flux'] = np.nan
+                row_data[f'{filt}_type'] = 'no_data'
+                flux_vector.append(np.nan)
+                flux_types.append('no_data')
+        else:
+            # Sort by wavelength for interpolation
+            available_data = sorted(available_data, key=lambda x: x['wavelength'])
+            wave_available = np.array([d['wavelength'] for d in available_data])
+            flux_available = np.array([d['f_nu'] for d in available_data])
+            
+            # Create interpolation function if we have multiple points
+            interp_func = None
+            if len(wave_available) > 1:
+                interp_func = interp1d(np.log10(wave_available), np.log10(flux_available), 
+                                      kind='linear', fill_value='extrapolate')
+            
+            # Calculate flux for each requested filter
+            for filt in filters:
+                if filt not in filter_info:
+                    if verbose and idx == 0:  # Only warn once
+                        print(f"Warning: Filter {filt} not in filter_info")
+                    row_data[f'{filt}_flux'] = np.nan
+                    row_data[f'{filt}_type'] = 'unknown_filter'
+                    flux_vector.append(np.nan)
+                    flux_types.append('unknown_filter')
+                    continue
+                    
+                wavelength = filter_info[filt]['wavelength']
+                
+                # Check if we have a direct measurement
+                if filt in star_row.index and pd.notna(star_row[filt]):
+                    mag = star_row[filt]
+                    f_nu_vega = filter_info[filt]['F_nu_vega']
+                    f_nu = f_nu_vega * 10**(-mag / 2.5)
+                    row_data[f'{filt}_flux'] = f_nu
+                    row_data[f'{filt}_type'] = 'measured'
+                    flux_vector.append(f_nu)
+                    flux_types.append('measured')
+                elif interp_func is not None:
+                    # Interpolate
+                    f_nu = 10**interp_func(np.log10(wavelength))
+                    row_data[f'{filt}_flux'] = f_nu
+                    row_data[f'{filt}_type'] = 'interpolated'
+                    flux_vector.append(f_nu)
+                    flux_types.append('interpolated')
+                else:
+                    # Only one data point, can't interpolate
+                    row_data[f'{filt}_flux'] = np.nan
+                    row_data[f'{filt}_type'] = 'insufficient_data'
+                    flux_vector.append(np.nan)
+                    flux_types.append('insufficient_data')
+        
+        results.append(row_data)
+        flux_dict[star_name] = {
+            'fluxes': np.array(flux_vector),
+            'types': flux_types,
+            'filters': filters
+        }
+    
+    flux_df = pd.DataFrame(results)
+    
+    if verbose:
+        print(f"\nCompleted! Processed {len(flux_df)} stars.")
+        print(f"DataFrame shape: {flux_df.shape}")
+    
+    return flux_df, flux_dict
+
+def master_df_with_Fnu():
+    filter_df = get_filter_properties_df()
+    print(filter_df.columns.tolist())
+
     df = master_df()
     # print(df.columns.tolist())
-    print(df['ebv'])
+    atlas_filters = ['V', 'R', 'I', 'H', 'K']
+    all_filters = ['V', 'G', 'BP', 'RP', 'H', 'K']  # Added BP for completeness
+    flux_df, flux_dict = get_stellar_fluxes(df, filter_df, filters=atlas_filters)
+    print(flux_df.columns.tolist())
+    ans = df.merge(flux_df, on='Star', how='inner')
+    return ans
+
+if __name__ == "__main__":
+    df = master_df_with_Fnu()
+    print(df)
