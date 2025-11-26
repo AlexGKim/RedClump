@@ -219,9 +219,7 @@ def plot_intensity(
     ax_int.legend()
 
     # ---- visibility ----------------------------------------------------
-    zeta_grid = np.pi * u_grid * 2 * rmas_max  # convert to 1/rad
-    print(u_grid)
-    print(rmas_max)
+
 
     ax_vis.plot(u_grid, vis_phoenix**2,
                 label="PHOENIX", color="tab:blue")
@@ -230,6 +228,8 @@ def plot_intensity(
     ax_vis.set_ylabel(r"$|V|^2$")
     # ax_vis.set_yscale("log")
     ax_vis.grid(True, which="both", ls=":", alpha=0.6)
+    ax_vis.set_yscale("log")
+    ax_vis.set_ylim(1e-4,1.1)
     ax_vis.legend()
     ax_vis.tick_params(labelbottom=False)  # Hide x-axis labels on top plot
 
@@ -372,6 +372,8 @@ def plot_satlas_vis2_all_bands(
 
     ax.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
     ax.set_ylabel(r"$|V|^{2}$")
+    ax.set_yscale("log")
+    ax.set_ylim(1e-3,1.1)
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Band", loc="upper right", fontsize="small", ncol=2)
 
@@ -384,10 +386,336 @@ def plot_satlas_vis2_all_bands(
         plt.show()
     return ax
 
-# ----------------------------------------------------------------------
-# Example usage (run the file directly)
-# ----------------------------------------------------------------------
+def compute_visibility_derivative(
+    intensity: np.ndarray,
+    scaled_rays: np.ndarray,
+    u_grid: np.ndarray,
+    s: float = 1.0,
+) -> np.ndarray:
+    """
+    Compute ∂V/∂s for the visibility amplitude.
+    
+    Parameters
+    ----------
+    intensity : np.ndarray
+        Intensity profile I(θ), shape (N,)
+    scaled_rays : np.ndarray
+        Radial coordinate θ (mas), shape (N,)
+    u_grid : np.ndarray
+        Spatial frequency grid (1/mas), shape (M,)
+    s : float, optional
+        Scale parameter (default 1.0)
+    
+    Returns
+    -------
+    np.ndarray
+        ∂V/∂s evaluated at each point in u_grid, shape (M,)
+    
+    Notes
+    -----
+    The formula is:
+        ∂V/∂s = -(2πu/s) * [∫ I(θ) J₁(2πuθ) θ² dθ] / [∫ I(θ) θ dθ]
+    """
+    # Denominator (independent of u)
+    denom = np.trapezoid(intensity * scaled_rays, scaled_rays)
+    
+    # Container for the derivative
+    dVds = np.empty_like(u_grid)
+    
+    for i, u in enumerate(u_grid):
+        # J₁(2πuθ)
+        J1 = scipy.special.j1(2.0 * np.pi * u * scaled_rays)
+        
+        # Numerator: ∫ I(θ) J₁(2πuθ) θ² dθ
+        num = np.trapezoid(intensity * J1 * (scaled_rays ** 2), scaled_rays)
+        
+        # ∂V/∂s = -(2πu/s) * num / denom
+        dVds[i] = -(2.0 * np.pi * u / s) * (num / denom)
+    
+    return dVds
+
+
+def plot_satlas_derivative_all_bands(
+    satlas_path: str | pathlib.Path,
+    *,
+    u_max: float = 3.0,
+    n_u: int = 200,
+    radius_m: float = radius_m,
+    distance_m: float = distance_m,
+    save_as: str | pathlib.Path = "satlas_derivative_all_bands.pdf",
+    show: bool = True,
+) -> plt.Figure:
+    """
+    Compute and plot ∂(V²)/∂s for all photometric bands in Satlas.
+    
+    Parameters
+    ----------
+    satlas_path
+        Path to Satlas surface intensity file
+    u_max, n_u
+        Spatial frequency grid
+    radius_m, distance_m
+        Stellar geometry
+    save_as
+        Output filename
+    show
+        Display the plot
+    
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    # Load Satlas table
+    satlas_df = pd.read_csv(
+        pathlib.Path(satlas_path),
+        sep=r"\s+",
+        header=0,
+        comment="#",
+    )
+    
+    radius_col = "r(mas)"
+    band_cols = [c for c in satlas_df.columns if c != radius_col]
+    
+    # Extend profile
+    tr_max = 1.0000001 * radius_m / distance_m
+    rmas_max = tr_max * (180.0 / np.pi) * 3600.0 * 1000.0
+    zero_row = pd.Series(0.0, index=satlas_df.columns)
+    zero_row[radius_col] = rmas_max
+    satlas_df = pd.concat([satlas_df, zero_row.to_frame().T], ignore_index=True)
+    
+    scaled_rays = satlas_df[radius_col].values.astype(float)
+    u_grid = np.linspace(0.0, u_max, n_u)
+    
+    # Compute V and ∂V/∂s for each band
+    vis_dict = {}
+    dVds_dict = {}
+    dV2ds_dict = {}
+    
+    for band in band_cols:
+        intensity = satlas_df[band].values
+        
+        # Compute V
+        denom = np.trapezoid(intensity * scaled_rays, scaled_rays)
+        vis = np.empty_like(u_grid)
+        
+        for i, u in enumerate(u_grid):
+            J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)
+            num = np.trapezoid(intensity * J0 * scaled_rays, scaled_rays)
+            vis[i] = num / denom
+        
+        # Compute ∂V/∂s
+        dVds = compute_visibility_derivative(intensity, scaled_rays, u_grid, s=1.0)
+        
+        # Compute ∂(V²)/∂s
+        dV2ds = 2.0 * vis * dVds
+        
+        vis_dict[band] = vis
+        dVds_dict[band] = dVds
+        dV2ds_dict[band] = dV2ds
+    
+    # Plot
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    
+    prop_cycle = plt.rcParams["axes.prop_cycle"]
+    colors = prop_cycle.by_key()["color"]
+    linestyles = ["-", "--", "-.", ":"]
+    
+    for idx, band in enumerate(band_cols):
+        col = colors[idx % len(colors)]
+        ls = linestyles[(idx // len(colors)) % len(linestyles)]
+        label = _strip_prefix(band)
+        
+        # Top panel: ∂V/∂s
+        ax1.plot(u_grid, dVds_dict[band], label=label, color=col, linestyle=ls, linewidth=1.5)
+        
+        # Bottom panel: ∂(V²)/∂s
+        ax2.plot(u_grid, dV2ds_dict[band], label=label, color=col, linestyle=ls, linewidth=1.5)
+    
+    # Top panel formatting
+    ax1.axhline(0, color='black', linestyle=':', linewidth=0.8, alpha=0.7)
+    ax1.set_ylabel(r"$\partial V / \partial s$", fontsize=12)
+    ax1.grid(True, which="both", ls=":", alpha=0.6)
+    ax1.legend(title="Band", loc="best", fontsize="small", ncol=2)
+    ax1.set_title("SATLAS Visibility Scale Derivative - All Bands", 
+                  fontsize=14, fontweight='bold')
+    
+    # Bottom panel formatting
+    ax2.axhline(0, color='black', linestyle=':', linewidth=0.8, alpha=0.7)
+    ax2.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$", fontsize=12)
+    ax2.set_ylabel(r"$\partial |V|^2 / \partial s$", fontsize=12)
+    ax2.grid(True, which="both", ls=":", alpha=0.6)
+    ax2.legend(title="Band", loc="best", fontsize="small", ncol=2)
+    
+    plt.tight_layout()
+    plt.savefig(save_as, bbox_inches="tight")
+    if show:
+        plt.show()
+    
+    return fig
+
+def plot_fss_inverse_sqrt(
+    satlas_path: str | pathlib.Path,
+    df_with_noise: pd.DataFrame,
+    *,
+    star_name: str | None = None,
+    filters: list[str] = ['V', 'R', 'I', 'H', 'K'],
+    u_max: float = 3.0,
+    n_u: int = 200,
+    radius_m: float = radius_m,
+    distance_m: float = distance_m,
+    save_as: str | pathlib.Path = "fss_inverse_sqrt.pdf",
+    show: bool = True,
+) -> plt.Figure:
+    """
+    Compute and plot F_ss^{-1/2} for each filter.
+    
+    F_ss = (∂|V|²/∂s * inverse_noise)²
+    F_ss^{-1/2} = 1/|∂|V|²/∂s * inverse_noise|
+    
+    Parameters
+    ----------
+    satlas_path
+        Path to Satlas surface intensity file
+    df_with_noise : pd.DataFrame
+        Dataframe containing inverse noise values with columns {filter}_inv_noise
+    star_name : str, optional
+        Name of star to use. If None, uses first star in dataframe.
+    filters : list[str]
+        List of filters to plot
+    u_max, n_u
+        Spatial frequency grid
+    radius_m, distance_m
+        Stellar geometry
+    save_as
+        Output filename
+    show
+        Display the plot
+    
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    # Get star data
+    if star_name is None:
+        star_row = df_with_noise.iloc[0]
+        star_name = star_row['Star']
+    else:
+        star_row = df_with_noise[df_with_noise['Star'] == star_name].iloc[0]
+    
+    print(f"Computing F_ss^{{-1/2}} for {star_name}")
+    
+    # Load Satlas table
+    satlas_df = pd.read_csv(
+        pathlib.Path(satlas_path),
+        sep=r"\s+",
+        header=0,
+        comment="#",
+    )
+    
+    radius_col = "r(mas)"
+    
+    # Extend profile
+    tr_max = 1.0000001 * radius_m / distance_m
+    rmas_max = tr_max * (180.0 / np.pi) * 3600.0 * 1000.0
+    zero_row = pd.Series(0.0, index=satlas_df.columns)
+    zero_row[radius_col] = rmas_max
+    satlas_df = pd.concat([satlas_df, zero_row.to_frame().T], ignore_index=True)
+    
+    scaled_rays = satlas_df[radius_col].values.astype(float)
+    u_grid = np.linspace(0.0, u_max, n_u)
+    
+    # Map filter names to Satlas column names
+    filter_to_satlas = {
+        'V': 'I/I0_V',
+        'R': 'I/I0_R',
+        'I': 'I/I0_I',
+        'H': 'I/I0_H',
+        'K': 'I/I0_K',
+        'B': 'I/I0_B'
+    }
+    
+    # Compute F_ss^{-1/2} for each filter
+    fss_inv_sqrt_dict = {}
+    
+    for filt in filters:
+        # Get inverse noise for this filter
+        inv_noise_col = f'{filt}_inv_noise'
+        if inv_noise_col not in star_row.index:
+            print(f"Warning: {inv_noise_col} not found for {star_name}, skipping {filt}")
+            continue
+        
+        inverse_noise = star_row[inv_noise_col]
+        
+        if pd.isna(inverse_noise) or inverse_noise == 0:
+            print(f"Warning: Invalid inverse_noise for {filt}, skipping")
+            continue
+        
+        # Get Satlas column for this filter
+        satlas_col = filter_to_satlas.get(filt)
+        if satlas_col is None or satlas_col not in satlas_df.columns:
+            print(f"Warning: {filt} not found in Satlas data, skipping")
+            continue
+        
+        intensity = satlas_df[satlas_col].values
+        
+        # Compute V
+        denom = np.trapezoid(intensity * scaled_rays, scaled_rays)
+        vis = np.empty_like(u_grid)
+        
+        for i, u in enumerate(u_grid):
+            J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)
+            num = np.trapezoid(intensity * J0 * scaled_rays, scaled_rays)
+            vis[i] = num / denom
+        
+        # Compute ∂V/∂s
+        dVds = compute_visibility_derivative(intensity, scaled_rays, u_grid, s=1.0)
+        
+        # Compute ∂(V²)/∂s = 2V * ∂V/∂s
+        dV2ds = 2.0 * vis * dVds
+        
+        # Compute F_ss = (∂|V|²/∂s * inverse_noise)²
+        fss = (dV2ds * inverse_noise) ** 2
+        
+        # Compute F_ss^{-1/2} = 1/sqrt(F_ss) = 1/|∂|V|²/∂s * inverse_noise|
+        # Handle potential zeros/negatives
+        fss_inv_sqrt = np.zeros_like(fss)
+        valid = fss > 0
+        fss_inv_sqrt[valid] = 1.0 / np.sqrt(fss[valid])
+        
+        fss_inv_sqrt_dict[filt] = fss_inv_sqrt
+        
+        print(f"  {filt}: inverse_noise = {inverse_noise:.2e}")
+    
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    prop_cycle = plt.rcParams["axes.prop_cycle"]
+    colors = prop_cycle.by_key()["color"]
+    linestyles = ["-", "--", "-.", ":"]
+    
+    for idx, filt in enumerate(fss_inv_sqrt_dict.keys()):
+        col = colors[idx % len(colors)]
+        ls = linestyles[(idx // len(colors)) % len(linestyles)]
+        ax.plot(u_grid, fss_inv_sqrt_dict[filt], label=filt, color=col, 
+                linestyle=ls, linewidth=2)
+    
+    ax.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$", fontsize=12)
+    ax.set_ylabel(r"$F_{ss}^{-1/2}$", fontsize=12)
+    ax.set_title(f"Fisher Information: {star_name}", fontsize=14, fontweight='bold')
+    ax.grid(True, which="both", ls=":", alpha=0.6)
+    ax.legend(title="Filter", loc="best", fontsize=10)
+    ax.set_yscale('log')
+    
+    plt.tight_layout()
+    plt.savefig(save_as, bbox_inches="tight")
+    if show:
+        plt.show()
+    
+    return fig
+
+# Update the __main__ block
 if __name__ == "__main__":
+    # Original plots
     plot_intensity(
         filter_name="H",
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
@@ -397,7 +725,6 @@ if __name__ == "__main__":
     )
     print("Plot saved as phoenix_vs_satlas_H.pdf")
 
-        # New all‑band visibility plot
     plot_satlas_vis2_all_bands(
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
         u_max=3.0,
@@ -406,3 +733,30 @@ if __name__ == "__main__":
         show=False,
     )
     print("All‑band Satlas visibility plot saved as satlas_vis2_all_bands.pdf")
+    
+    
+    plot_satlas_derivative_all_bands(
+        satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
+        u_max=3.0,
+        n_u=300,
+        save_as="satlas_derivative_all_bands.pdf",
+        show=False,
+    )
+    print("All‑band derivative plot saved as satlas_derivative_all_bands.pdf")
+
+    # Get dataframe with inverse noise
+    from rc_utils import master_df_with_inverse_noise
+    df_with_noise = master_df_with_inverse_noise()
+
+    # Plot for single star
+    plot_fss_inverse_sqrt(
+        satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
+        df_with_noise=df_with_noise,
+        star_name=None,  # Use first star
+        filters=['V', 'R', 'I', 'H', 'K'],
+        u_max=3.0,
+        n_u=300,
+        save_as="fss_inverse_sqrt_single.pdf",
+        show=False,
+    )
+    print("F_ss^{-1/2} plot for single star saved as fss_inverse_sqrt_single.pdf")

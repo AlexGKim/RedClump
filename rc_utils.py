@@ -7,6 +7,8 @@ import pandas as pd
 import astropy.units as u
 from astropy.io       import fits
 
+from g2.core import Observation
+
 def get_filter_properties_df(vega_spectrum_path='data/alpha_lyr_mod_004.fits'):
     """
     Create a DataFrame containing zeropoints and effective wavelengths for 
@@ -650,6 +652,123 @@ def master_df_with_Fnu():
     ans = df.merge(flux_df, on='Star', how='inner')
     return ans
 
-if __name__ == "__main__":
+def calculate_inverse_noise(
+    df: pd.DataFrame,
+    filter_df: pd.DataFrame,
+    observation: Observation,
+    filters: list[str] = ['V', 'R', 'I', 'H', 'K'],
+    verbose: bool = True
+) -> pd.DataFrame:
+    """
+    Calculate inverse noise for specific fluxes in each filter.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe containing stellar fluxes (with columns like 'V_flux', 'R_flux', etc.)
+    filter_df : pd.DataFrame
+        Filter properties dataframe with effective frequencies
+    observation : Observation
+        Observation parameters (integration time, telescope area, etc.)
+    filters : list[str]
+        List of filters to calculate inverse noise for
+    verbose : bool
+        Print progress information
+        
+    Returns
+    -------
+    pd.DataFrame
+        Original dataframe with additional inverse_noise columns for each filter
+        
+    Notes
+    -----
+    The inverse noise is calculated as:
+        inverse_noise = (photon_rate_per_nu) * sqrt(t_int / jitter) * (128π)^(-1/4)
+    
+    where photon_rate_per_nu = (throughput * area * flux) / (h * nu_0)
+    """
+    if verbose:
+        print(f"Calculating inverse noise for {len(df)} stars in {len(filters)} filters...")
+    
+    # Physical constants
+    h = 6.62607015e-34  # Planck constant (J⋅s)
+    
+    # Create filter lookup for frequencies
+    filter_freq = {}
+    for _, row in filter_df.iterrows():
+        filter_freq[row['Filter']] = row['ν_eff_Hz']
+    
+    # Common factor that doesn't depend on flux or frequency
+    common_factor = np.sqrt(observation.integration_time / observation.detector_jitter) * (128 * np.pi)**(-0.25)
+    
+    # Create a copy to avoid modifying the original
+    result_df = df.copy()
+    
+    # Calculate inverse noise for each filter
+    for filt in filters:
+        flux_col = f'{filt}_flux'
+        inv_noise_col = f'{filt}_inv_noise'
+        
+        if flux_col not in df.columns:
+            if verbose:
+                print(f"Warning: {flux_col} not found in dataframe, skipping {filt}")
+            continue
+        
+        if filt not in filter_freq:
+            if verbose:
+                print(f"Warning: Filter {filt} not in filter_df, skipping")
+            continue
+        
+        # Get central frequency for this filter
+        nu_0 = filter_freq[filt]
+        
+        # Calculate photon energy
+        photon_energy = h * nu_0
+        
+        # Get flux values (W/m²/Hz)
+        flux_values = df[flux_col].values
+        
+        # Calculate photon rate per frequency
+        # flux is in W/m²/Hz = J/(s⋅m²⋅Hz)
+        # photon_rate_per_nu has units of photons/(s⋅Hz)
+        photon_rate_per_nu = (
+            observation.throughput * 
+            observation.telescope_area * 
+            flux_values / 
+            photon_energy
+        )
+        
+        # Calculate inverse noise
+        inverse_noise = photon_rate_per_nu * common_factor
+        
+        # Add to dataframe
+        result_df[inv_noise_col] = inverse_noise
+        
+        if verbose:
+            # Calculate statistics (excluding NaN)
+            valid_inv_noise = inverse_noise[~np.isnan(inverse_noise)]
+            if len(valid_inv_noise) > 0:
+                print(f"  {filt}: mean={np.mean(valid_inv_noise):.2e}, "
+                      f"median={np.median(valid_inv_noise):.2e}, "
+                      f"min={np.min(valid_inv_noise):.2e}, "
+                      f"max={np.max(valid_inv_noise):.2e}")
+    
+    if verbose:
+        print(f"\nCompleted! Added {len(filters)} inverse noise columns.")
+    
+    return result_df
+def master_df_with_inverse_noise():
+    filter_df = get_filter_properties_df()
+
     df = master_df_with_Fnu()
-    print(df)
+    
+    # Observation parameters (same as fisher_matrix_table.py)
+    observation = Observation(
+        integration_time=3600,  # 3600 seconds
+        telescope_area=np.pi * (5.0)**2,  # π*(5m)^2
+        throughput=0.3,  # 0.3
+        detector_jitter=130e-12/2.555  # 130 ps FWHM to stddev
+    )
+    
+    new_df = calculate_inverse_noise(df, filter_df, observation)
+    return new_df
