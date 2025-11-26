@@ -553,9 +553,11 @@ def plot_satlas_derivative_all_bands(
     
     return fig
 
+
 def plot_fss_inverse_sqrt(
     satlas_path: str | pathlib.Path,
     df_with_noise: pd.DataFrame,
+    filter_df: pd.DataFrame,
     *,
     star_name: str | None = None,
     filters: list[str] = ['V', 'R', 'I', 'H', 'K'],
@@ -567,10 +569,13 @@ def plot_fss_inverse_sqrt(
     show: bool = True,
 ) -> plt.Figure:
     """
-    Compute and plot F_ss^{-1/2} for each filter.
+    Compute and plot F_ss^{-1/2} for each filter as a function of baseline B.
     
     F_ss = (∂|V|²/∂s * inverse_noise)²
     F_ss^{-1/2} = 1/|∂|V|²/∂s * inverse_noise|
+    
+    The x-axis is baseline B (meters), where u = B/λ₀
+    Therefore: B = u × λ₀
     
     Parameters
     ----------
@@ -578,12 +583,14 @@ def plot_fss_inverse_sqrt(
         Path to Satlas surface intensity file
     df_with_noise : pd.DataFrame
         Dataframe containing inverse noise values with columns {filter}_inv_noise
+    filter_df : pd.DataFrame
+        Filter properties dataframe containing effective frequencies
     star_name : str, optional
         Name of star to use. If None, uses first star in dataframe.
     filters : list[str]
         List of filters to plot
     u_max, n_u
-        Spatial frequency grid
+        Spatial frequency grid (in 1/mas)
     radius_m, distance_m
         Stellar geometry
     save_as
@@ -595,6 +602,10 @@ def plot_fss_inverse_sqrt(
     -------
     fig : matplotlib.figure.Figure
     """
+    # Physical constants
+    c = 2.99792458e8  # speed of light in m/s
+    mas_to_rad = (np.pi / 180.0) * (1.0 / 3600.0) * (1.0 / 1000.0)  # mas to radians
+    
     # Get star data
     if star_name is None:
         star_row = df_with_noise.iloc[0]
@@ -603,6 +614,11 @@ def plot_fss_inverse_sqrt(
         star_row = df_with_noise[df_with_noise['Star'] == star_name].iloc[0]
     
     print(f"Computing F_ss^{{-1/2}} for {star_name}")
+    
+    # Create filter frequency lookup
+    filter_freq = {}
+    for _, row in filter_df.iterrows():
+        filter_freq[row['Filter']] = row['ν_eff_Hz']
     
     # Load Satlas table
     satlas_df = pd.read_csv(
@@ -622,7 +638,12 @@ def plot_fss_inverse_sqrt(
     satlas_df = pd.concat([satlas_df, zero_row.to_frame().T], ignore_index=True)
     
     scaled_rays = satlas_df[radius_col].values.astype(float)
-    u_grid = np.linspace(0.0, u_max, n_u)
+    u_grid = np.linspace(0.0, u_max, n_u)  # in 1/mas
+    
+    # Convert u from 1/mas to 1/radians
+    # If u = 1 cycle/mas, then u = (1/mas_to_rad) cycles/radian
+    # because 1 radian contains (1/mas_to_rad) milliarcseconds
+    u_grid_rad = u_grid / mas_to_rad  # in 1/radians (divide, not multiply!)
     
     # Map filter names to Satlas column names
     filter_to_satlas = {
@@ -636,6 +657,7 @@ def plot_fss_inverse_sqrt(
     
     # Compute F_ss^{-1/2} for each filter
     fss_inv_sqrt_dict = {}
+    baseline_dict = {}
     
     for filt in filters:
         # Get inverse noise for this filter
@@ -649,6 +671,19 @@ def plot_fss_inverse_sqrt(
         if pd.isna(inverse_noise) or inverse_noise == 0:
             print(f"Warning: Invalid inverse_noise for {filt}, skipping")
             continue
+        
+        # Get effective frequency for this filter
+        if filt not in filter_freq:
+            print(f"Warning: Frequency for {filt} not found, skipping")
+            continue
+        
+        nu_0 = filter_freq[filt]  # Hz
+        lambda_0 = c / nu_0  # wavelength in meters
+        
+        # Calculate baseline: u = B/λ₀, so B = u × λ₀
+        # u_grid_rad is in 1/radians, λ₀ is in meters, so B is in meters
+        baseline = u_grid_rad * lambda_0
+        baseline_dict[filt] = baseline
         
         # Get Satlas column for this filter
         satlas_col = filter_to_satlas.get(filt)
@@ -684,7 +719,8 @@ def plot_fss_inverse_sqrt(
         
         fss_inv_sqrt_dict[filt] = fss_inv_sqrt
         
-        print(f"  {filt}: inverse_noise = {inverse_noise:.2e}")
+        print(f"  {filt}: λ₀ = {lambda_0*1e9:.1f} nm, inverse_noise = {inverse_noise:.2e}")
+        print(f"        Baseline range: {baseline.min():.2f} - {baseline.max():.2f} m")
     
     # Plot
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -696,16 +732,19 @@ def plot_fss_inverse_sqrt(
     for idx, filt in enumerate(fss_inv_sqrt_dict.keys()):
         col = colors[idx % len(colors)]
         ls = linestyles[(idx // len(colors)) % len(linestyles)]
-        ax.plot(u_grid, fss_inv_sqrt_dict[filt], label=filt, color=col, 
-                linestyle=ls, linewidth=2)
+        ax.plot(baseline_dict[filt], fss_inv_sqrt_dict[filt], label=filt, 
+                color=col, linestyle=ls, linewidth=2)
     
-    ax.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$", fontsize=12)
-    ax.set_ylabel(r"$F_{ss}^{-1/2}$", fontsize=12)
-    ax.set_title(f"Fisher Information: {star_name}", fontsize=14, fontweight='bold')
+    ax.set_xlabel(r"Baseline $B$ (m)", fontsize=12)
+    ax.set_ylabel(r"$\sqrt{F_{ss}^{-1}}$", fontsize=12)
+    # ax.set_title(f"Fisher Information vs Baseline: {star_name}", 
+                #  fontsize=14, fontweight='bold')
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Filter", loc="best", fontsize=10)
     ax.set_yscale('log')
-    
+    ax.set_xscale('log')
+    ax.set_xlim(10,1500)
+
     plt.tight_layout()
     plt.savefig(save_as, bbox_inches="tight")
     if show:
@@ -748,15 +787,21 @@ if __name__ == "__main__":
     from rc_utils import master_df_with_inverse_noise
     df_with_noise = master_df_with_inverse_noise()
 
-    # Plot for single star
+
+
+        # Plot for single star - NOW WITH filter_df
+    from rc_utils import get_filter_properties_df
+    filter_df = get_filter_properties_df()
     plot_fss_inverse_sqrt(
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
         df_with_noise=df_with_noise,
+        filter_df=filter_df,  # <-- Make sure this is included!
         star_name=None,  # Use first star
         filters=['V', 'R', 'I', 'H', 'K'],
-        u_max=3.0,
-        n_u=300,
-        save_as="fss_inverse_sqrt_single.pdf",
+        u_max=10.0,
+        n_u=1000,
+        save_as="fss_inverse_sqrt_vs_baseline.pdf",
         show=False,
     )
+
     print("F_ss^{-1/2} plot for single star saved as fss_inverse_sqrt_single.pdf")
