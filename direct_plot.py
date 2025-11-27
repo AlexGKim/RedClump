@@ -735,13 +735,14 @@ def plot_fss_inverse_sqrt(
         ax.plot(baseline_dict[filt], fss_inv_sqrt_dict[filt], label=filt, 
                 color=col, linestyle=ls, linewidth=2)
     
-    ax.set_xlabel(r"Baseline $B$ (m)", fontsize=12)
-    ax.set_ylabel(r"$\sqrt{F_{ss}^{-1}}$", fontsize=12)
+    ax.set_xlabel(r"$B$ (m)", fontsize=12)
+    ax.set_ylabel(r"$\sigma_s$", fontsize=12)
     # ax.set_title(f"Fisher Information vs Baseline: {star_name}", 
                 #  fontsize=14, fontweight='bold')
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Filter", loc="best", fontsize=10)
     ax.set_yscale('log')
+    ax.set_ylim(1e-1, 1e4)
     ax.set_xscale('log')
     ax.set_xlim(10,1500)
 
