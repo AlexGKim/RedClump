@@ -737,12 +737,14 @@ def plot_fss_inverse_sqrt(
     
     ax.set_xlabel(r"$B$ (m)", fontsize=12)
     ax.set_ylabel(r"$\sigma_s$", fontsize=12)
-    # ax.set_title(f"Fisher Information vs Baseline: {star_name}", 
-                #  fontsize=14, fontweight='bold')
+    ax.set_title(f"{star_name}", 
+                fontsize=14, fontweight='bold')
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Filter", loc="best", fontsize=10)
     ax.set_yscale('log')
     ax.set_ylim(1e-1, 1e4)
+    if star_name == "HD 17652":
+        ax.set_ylim(1e-2, 1e3)
     ax.set_xscale('log')
     ax.set_xlim(10,1500)
 
@@ -797,11 +799,11 @@ if __name__ == "__main__":
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
         df_with_noise=df_with_noise,
         filter_df=filter_df,  # <-- Make sure this is included!
-        star_name=None,  # Use first star
+        star_name="HD 360",  # Use first star
         filters=['V', 'R', 'I', 'H', 'K'],
         u_max=10.0,
         n_u=1000,
-        save_as="fss_inverse_sqrt_vs_baseline.pdf",
+        save_as="fss_hd360.pdf",
         show=False,
     )
 
