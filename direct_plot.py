@@ -807,4 +807,14 @@ if __name__ == "__main__":
         show=False,
     )
 
-    print("F_ss^{-1/2} plot for single star saved as fss_inverse_sqrt_single.pdf")
+    plot_fss_inverse_sqrt(
+        satlas_path="data/output_ld-satlas_1764290684148/ld_satlas_surface.2t4800g275m10_Ir_all_bands.txt",
+        df_with_noise=df_with_noise,
+        filter_df=filter_df,  # <-- Make sure this is included!
+        star_name="HD 17652",  # Use first star
+        filters=['V', 'R', 'I', 'H', 'K'],
+        u_max=10.0,
+        n_u=1000,
+        save_as="fss_hd17652.pdf",
+        show=False,
+    )
