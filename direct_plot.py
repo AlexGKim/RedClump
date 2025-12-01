@@ -742,9 +742,9 @@ def plot_fss_inverse_sqrt(
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Filter", loc="best", fontsize=10)
     ax.set_yscale('log')
-    ax.set_ylim(1e-1, 1e4)
-    if star_name == "HD 17652":
-        ax.set_ylim(1e-2, 1e3)
+    ax.set_ylim(5e-3, 1e3)
+    # if star_name == "HD 17652":
+    #     ax.set_ylim(1e-2, 1e3)
     ax.set_xscale('log')
     ax.set_xlim(10,1500)
 

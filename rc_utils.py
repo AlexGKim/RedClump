@@ -765,7 +765,7 @@ def master_df_with_inverse_noise():
     # Observation parameters (same as fisher_matrix_table.py)
     observation = Observation(
         integration_time=3600,  # 3600 seconds
-        telescope_area=np.pi * (1.0)**2,  # π*(5m)^2
+        telescope_area=np.pi * (2.0)**2,  # π*(5m)^2
         throughput=0.3,  # 0.3
         detector_jitter=42.4e-12/2.555 #130e-12/2.555  # 130 ps FWHM to stddev
     )

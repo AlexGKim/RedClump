@@ -1,0 +1,13 @@
+SATLAS
+https://amhra.oca.eu/AMHRA/ld-satlas/input.htm
+
+HD360
+>>> 10**3.678 
+4764.309868054156
+2.62 ± 0.11
+output_ld-satlas_1762763642809
+
+HD17652
+4786
+2.67 ± 0.10
+output_ld-satlas_1764290684148
