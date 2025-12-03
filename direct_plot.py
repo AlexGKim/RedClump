@@ -196,7 +196,7 @@ def plot_intensity(
         ax_int = fig.add_subplot(gs[0, 0])
         
         # Split the right column into two rows
-        gs_right = gs[0, 1].subgridspec(2, 1, hspace=0.05)
+        gs_right = gs[0, 1].subgridspec(2, 1, hspace=0.15)
         ax_vis = fig.add_subplot(gs_right[0])
         ax_diff = fig.add_subplot(gs_right[1], sharex=ax_vis)
     else:
