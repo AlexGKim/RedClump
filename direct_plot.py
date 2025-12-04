@@ -72,7 +72,7 @@ def _phoenix_intensity(mu2: np.ndarray, coeffs: pd.Series) -> np.ndarray:
 # Public API
 # ----------------------------------------------------------------------
 def plot_intensity(
-    filter_name: str,
+    filter_names: list[str] | str,
     satlas_path: str | pathlib.Path,
     table12_path: str | pathlib.Path,
     *,
@@ -89,26 +89,23 @@ def plot_intensity(
 
     Parameters
     ----------
-    filter_name, satlas_path, table12_path, mu_grid, ax, save_as, show
+    filter_names : list[str] or str
+        Filter name(s) to plot. Can be a single filter or list of filters (e.g., ['V', 'H']).
+    satlas_path, table12_path, mu_grid, ax, save_as, show
         as before.
     u_max : float, optional
         Maximum spatial frequency (units: 1/mas). Default 0.5 mas⁻¹.
     n_u : int, optional
         Number of points in the u‑grid.
     """
+    # Convert single filter to list for uniform handling
+    if isinstance(filter_names, str):
+        filter_names = [filter_names]
     # ------------------------------------------------------------------
-    # 1) Load coefficients
+    # 1) Load coefficients for all requested filters
     # ------------------------------------------------------------------
     coeffs_df = read_table12(pathlib.Path(table12_path))
-
-    needed = [f"a1{filter_name}", f"a2{filter_name}",
-              f"a3{filter_name}", f"a4{filter_name}"]
-    if not set(needed).issubset(coeffs_df.columns):
-        raise ValueError(
-            f'Filter "{filter_name}" not recognised. '
-            f'Available filters: {sorted({c[-1] for c in coeffs_df.columns if c.startswith("a1")})}'
-        )
-
+    
     from gaia_phoenix import match_phoenix_parameters
     teff, logg, feh = 4800, 2.5, 1.0
     teff_phoenix, logg_phoenix, feh_phoenix = match_phoenix_parameters(teff, logg, feh)
@@ -116,16 +113,27 @@ def plot_intensity(
     # rows that match the Phoenix atmospheric parameters
     mask = (
         (coeffs_df["Teff"] == teff_phoenix) &
-        (coeffs_df["logg"] == logg_phoenix)  # column name may be "FeH" or "feh"
+        (coeffs_df["logg"] == logg_phoenix)
     )
     if not mask.any():
         raise ValueError(
             f'No entry in table12.dat for Teff={teff_phoenix}, '
             f'logg={logg_phoenix}, FeH={feh_phoenix}.'
         )
-    # keep only the four needed columns and grab the first matching row
-    coeff_row: pd.Series = coeffs_df.loc[mask, needed].iloc[0]   # Series
-    coeff_row.index = ["a1", "a2", "a3", "a4"]                  # rename to generic keys
+    
+    # Load coefficients for each filter
+    coeff_rows = {}
+    for filter_name in filter_names:
+        needed = [f"a1{filter_name}", f"a2{filter_name}",
+                  f"a3{filter_name}", f"a4{filter_name}"]
+        if not set(needed).issubset(coeffs_df.columns):
+            raise ValueError(
+                f'Filter "{filter_name}" not recognised. '
+                f'Available filters: {sorted({c[-1] for c in coeffs_df.columns if c.startswith("a1")})}'
+            )
+        coeff_row: pd.Series = coeffs_df.loc[mask, needed].iloc[0]
+        coeff_row.index = ["a1", "a2", "a3", "a4"]
+        coeff_rows[filter_name] = coeff_row
 
     # ------------------------------------------------------------------
     # 2) Load Satlas data
@@ -146,18 +154,19 @@ def plot_intensity(
 
 
     # ------------------------------------------------------------------
-    # 3) Build μ grid and compute Phoenix profile
+    # 3) Build μ grid and compute Phoenix profiles for all filters
     # ------------------------------------------------------------------
     # Convert the angular radius (mas) → radians
     theta_rad = satlas_df["r(mas)"].values * (np.pi / 180 / 3600 / 1000)
-    # μ = cos(θ) for a uniform‐disk geometry
-    # mu = np.sqrt(1.0 - (distance_m * theta_rad / radius_m) ** 2)
     mu2 = 1.0 - (distance_m * theta_rad / radius_m) ** 2
 
-    phoenix_I = _phoenix_intensity(mu2, coeff_row)                     # shape (N,)
+    # Compute Phoenix intensity for each filter
+    phoenix_I_dict = {}
+    for filter_name in filter_names:
+        phoenix_I_dict[filter_name] = _phoenix_intensity(mu2, coeff_rows[filter_name])
 
     # ------------------------------------------------------------------
-    # 4) Prepare the second‑subplot: visibility vs. spatial frequency u
+    # 4) Prepare visibility vs. spatial frequency u for all filters
     # ------------------------------------------------------------------
     # u‑grid (1/mas)
     u_grid = np.linspace(0.0, u_max, n_u)
@@ -165,25 +174,45 @@ def plot_intensity(
     # scaled rays = the same radial coordinate used for the Hankel transform
     scaled_rays = satlas_df["r(mas)"].values.astype(float)   # (N,)
 
-    # Containers for the two visibility curves
-    vis_phoenix = np.empty_like(u_grid)
-    vis_satlas  = np.empty_like(u_grid)
+    # Map filter names to Satlas column names
+    filter_to_satlas = {
+        'V': 'I/I0_V',
+        'H': 'I/I0_H',
+        'R': 'I/I0_R',
+        'I': 'I/I0_I',
+        'K': 'I/I0_K',
+        'B': 'I/I0_B'
+    }
 
-    # Pre‑compute the denominator (the "zero‑baseline" integral) – common to both
-    denom_phoenix = np.trapezoid(phoenix_I * scaled_rays, scaled_rays)
-    denom_satlas  = np.trapezoid(satlas_df["I/I0_H"].values * scaled_rays, scaled_rays)
+    # Containers for visibility curves
+    vis_phoenix_dict = {}
+    vis_satlas_dict = {}
 
-    for i, u in enumerate(u_grid):
-        J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)   # J0(2πuρ)
+    for filter_name in filter_names:
+        vis_phoenix = np.empty_like(u_grid)
+        vis_satlas = np.empty_like(u_grid)
+        
+        satlas_col = filter_to_satlas.get(filter_name, f'I/I0_{filter_name}')
+        if satlas_col not in satlas_df.columns:
+            raise ValueError(f'Satlas column {satlas_col} not found for filter {filter_name}')
+        
+        # Pre‑compute denominators
+        denom_phoenix = np.trapezoid(phoenix_I_dict[filter_name] * scaled_rays, scaled_rays)
+        denom_satlas = np.trapezoid(satlas_df[satlas_col].values * scaled_rays, scaled_rays)
 
-        # numerator for Phoenix
-        num_pho = np.trapezoid(phoenix_I * J0 * scaled_rays, scaled_rays)
-        vis_phoenix[i] = num_pho / denom_phoenix
+        for i, u in enumerate(u_grid):
+            J0 = scipy.special.j0(2.0 * np.pi * u * scaled_rays)
 
-        # numerator for Satlas
-        num_sat = np.trapezoid(satlas_df["I/I0_H"].values * J0 * scaled_rays,
-                           scaled_rays)
-        vis_satlas[i] = num_sat / denom_satlas
+            # numerator for Phoenix
+            num_pho = np.trapezoid(phoenix_I_dict[filter_name] * J0 * scaled_rays, scaled_rays)
+            vis_phoenix[i] = num_pho / denom_phoenix
+
+            # numerator for Satlas
+            num_sat = np.trapezoid(satlas_df[satlas_col].values * J0 * scaled_rays, scaled_rays)
+            vis_satlas[i] = num_sat / denom_satlas
+        
+        vis_phoenix_dict[filter_name] = vis_phoenix
+        vis_satlas_dict[filter_name] = vis_satlas
 
     # ------------------------------------------------------------------
     # 5) Plot (three sub‑plots: intensity on left, visibility and difference stacked on right)
@@ -209,24 +238,38 @@ def plot_intensity(
         ax_diff = fig.add_subplot(gs_right[1], sharex=ax_vis)
 
     # ---- intensity ----------------------------------------------------
-    ax_int.plot(satlas_df["r(mas)"], phoenix_I,
-                label="PHOENIX", color="tab:blue")
-    ax_int.plot(satlas_df["r(mas)"], satlas_df["I/I0_H"],
-                label="SATLAS", color="tab:red", linestyle="--")
+    # Define colors for each band
+    band_colors = {'V': 'tab:green', 'H': 'tab:red', 'R': 'tab:orange',
+                   'I': 'tab:orange', 'K': 'tab:purple', 'B': 'tab:blue'}
+    
+    for filter_name in filter_names:
+        color = band_colors.get(filter_name, 'black')
+        satlas_col = filter_to_satlas.get(filter_name, f'I/I0_{filter_name}')
+        
+        # PHOENIX: solid line
+        ax_int.plot(satlas_df["r(mas)"], phoenix_I_dict[filter_name],
+                    label=f"PHOENIX {filter_name}", color=color, linestyle='-')
+        # ATLAS (SATLAS): dashed line
+        ax_int.plot(satlas_df["r(mas)"], satlas_df[satlas_col],
+                    label=f"ATLAS {filter_name}", color=color, linestyle='--')
+    
     ax_int.set_xlabel(r"$r\;(\mathrm{mas})$")
     ax_int.set_ylabel(r"$I(r)/I(0)$")
     ax_int.grid(True, which="both", ls=":", alpha=0.6)
     ax_int.legend()
 
     # ---- visibility ----------------------------------------------------
-
-
-    ax_vis.plot(u_grid, vis_phoenix**2,
-                label="PHOENIX", color="tab:blue")
-    ax_vis.plot(u_grid, vis_satlas**2,
-                label="SATLAS", color="tab:red", linestyle="--")
+    for filter_name in filter_names:
+        color = band_colors.get(filter_name, 'black')
+        
+        # PHOENIX: solid line
+        ax_vis.plot(u_grid, vis_phoenix_dict[filter_name]**2,
+                    label=f"PHOENIX {filter_name}", color=color, linestyle='-')
+        # ATLAS (SATLAS): dashed line
+        ax_vis.plot(u_grid, vis_satlas_dict[filter_name]**2,
+                    label=f"ATLAS {filter_name}", color=color, linestyle='--')
+    
     ax_vis.set_ylabel(r"$|V|^2$")
-    # ax_vis.set_yscale("log")
     ax_vis.grid(True, which="both", ls=":", alpha=0.6)
     ax_vis.set_yscale("log")
     ax_vis.set_ylim(1e-4,1.1)
@@ -234,14 +277,19 @@ def plot_intensity(
     ax_vis.tick_params(labelbottom=False)  # Hide x-axis labels on top plot
 
     # ---- difference in |V|² -----------------------------------------
-    diff_v2 = vis_phoenix**2 - vis_satlas**2
-    ax_diff.plot(u_grid, diff_v2, color="tab:green", linewidth=1.5)
+    for filter_name in filter_names:
+        color = band_colors.get(filter_name, 'black')
+        diff_v2 = vis_phoenix_dict[filter_name]**2 - vis_satlas_dict[filter_name]**2
+        ax_diff.plot(u_grid, diff_v2, color=color, linewidth=1.5, label=filter_name)
+    
     ax_diff.axhline(0, color='black', linestyle=':', linewidth=0.8, alpha=0.7)
     ax_diff.set_xlabel(r"$u\;(\mathrm{mas}^{-1})$")
     ax_diff.set_ylabel(r"$\Delta|V|^2$")
     ax_diff.grid(True, which="both", ls=":", alpha=0.6)
     ax_diff.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
     ax_diff.yaxis.get_offset_text().set_position((-0.1, -1))  # Move offset to left
+    if len(filter_names) > 1:
+        ax_diff.legend()
 
     # ------------------------------------------------------------------
     # 6) Save / show
@@ -757,15 +805,15 @@ def plot_fss_inverse_sqrt(
 
 # Update the __main__ block
 if __name__ == "__main__":
-    # Original plots
+    # Original plots - now with both V and H bands
     plot_intensity(
-        filter_name="H",
+        filter_names=['B', 'H'],
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
         table12_path="data/phoenix/table12.dat",
-        save_as="phoenix_vs_satlas_H.pdf",
+        save_as="phoenix_vs_satlas_BH.pdf",
         show=False,
     )
-    print("Plot saved as phoenix_vs_satlas_H.pdf")
+    print("Plot saved as phoenix_vs_satlas_VH.pdf")
 
     plot_satlas_vis2_all_bands(
         satlas_path="data/output_ld-satlas_1762763642809/ld_satlas_surface.2t4800g250m10_Ir_all_bands.txt",
