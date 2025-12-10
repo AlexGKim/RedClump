@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 
 def format_value_with_uncertainty(value, uncertainty):
-    """Format a value with its uncertainty using \pm notation."""
+    r"""Format a value with its uncertainty using \pm notation."""
     return f"${value:.3f} \\pm {uncertainty:.3f}$"
 
 def generate_latex_table(csv_file='data/extended_data_table_2.csv'):
-    """
+    r"""
     Generate a LaTeX table from extended_data_table_2.csv.
     
     Columns: Star, LD, V, K, RA_Gaia, DEC_Gaia, phot_g_mean_mag, 
