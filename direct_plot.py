@@ -803,6 +803,98 @@ def plot_fss_inverse_sqrt(
     
     return fig
 
+def create_inverse_noise_table(
+    stars: list[str] = ['HD 360', 'HD 17652'],
+    filters: list[str] = ['V', 'R', 'I', 'H', 'K'],
+    verbose: bool = True,
+    latex_format: bool = True
+) -> pd.DataFrame:
+    """
+    Create a table of inverse_noise values for specified stars and filters.
+    
+    Parameters
+    ----------
+    stars : list[str]
+        List of star names (default: ['HD 360', 'HD 17652'])
+    filters : list[str]
+        List of filters (default: ['V', 'R', 'I', 'H', 'K'])
+    verbose : bool
+        Print the table
+    latex_format : bool
+        Print table in LaTeX format (default: True)
+        
+    Returns
+    -------
+    pd.DataFrame
+        Table with stars as rows and filters as columns, containing inverse_noise values
+    """
+    from rc_utils import master_df_with_inverse_noise
+    
+    # Get the dataframe with inverse noise values
+    df_with_noise = master_df_with_inverse_noise()
+    
+    # Filter to only the requested stars
+    df_stars = df_with_noise[df_with_noise['Star'].isin(stars)]
+    
+    if len(df_stars) == 0:
+        raise ValueError(f"None of the requested stars {stars} found in dataframe")
+    
+    # Create the table
+    table_data = []
+    for _, row in df_stars.iterrows():
+        star_name = row['Star']
+        row_data = {'Star': star_name}
+        
+        for filt in filters:
+            inv_noise_col = f'{filt}_inv_noise'
+            if inv_noise_col in row.index:
+                row_data[filt] = row[inv_noise_col]
+            else:
+                row_data[filt] = np.nan
+        
+        table_data.append(row_data)
+    
+    # Create DataFrame
+    result_df = pd.DataFrame(table_data)
+    result_df = result_df.set_index('Star')
+    
+    if verbose:
+        print("\nInverse Noise Table")
+        print("=" * 80)
+        print(f"Stars: {stars}")
+        print(f"Filters: {filters}")
+        print("\n")
+        
+        if latex_format:
+            # Generate LaTeX table manually
+            print("LaTeX Format:")
+            print("\\begin{tabular}{l" + "c" * len(filters) + "}")
+            print("\\hline")
+            
+            # Header row
+            header = "Star & " + " & ".join(filters) + " \\\\"
+            print(header)
+            print("\\hline")
+            
+            # Data rows
+            for star in result_df.index:
+                row_values = [f"{result_df.loc[star, filt]:.2f}" for filt in filters]
+                row_str = star + " & " + " & ".join(row_values) + " \\\\"
+                print(row_str)
+            
+            print("\\hline")
+            print("\\end{tabular}")
+        else:
+            # Format the table nicely
+            pd.set_option('display.float_format', lambda x: f'{x:.4e}')
+            print(result_df)
+            pd.reset_option('display.float_format')
+        
+        print("\n" + "=" * 80)
+    
+    return result_df
+
+
 # Update the __main__ block
 if __name__ == "__main__":
     # Original plots - now with both V and H bands
@@ -865,4 +957,14 @@ if __name__ == "__main__":
         n_u=1000,
         save_as="fss_hd17652.pdf",
         show=False,
+    )
+    
+    # Create inverse noise table for HD 360 and HD 17652
+    print("\n" + "="*80)
+    print("Creating inverse noise table for HD 360 and HD 17652")
+    print("="*80)
+    inverse_noise_table = create_inverse_noise_table(
+        stars=['HD 360', 'HD 17652'],
+        filters=['V', 'R', 'I', 'H', 'K'],
+        verbose=True
     )
