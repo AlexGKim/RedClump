@@ -777,15 +777,22 @@ def plot_fss_inverse_sqrt(
     colors = prop_cycle.by_key()["color"]
     linestyles = ["-", "--", "-.", ":"]
     
+    # Find the H band color for later use in horizontal lines
+    h_color = 'gray'  # default fallback
+    filter_list = list(fss_inv_sqrt_dict.keys())
+    if 'H' in filter_list:
+        h_idx = filter_list.index('H')
+        h_color = colors[h_idx % len(colors)]
+    
     for idx, filt in enumerate(fss_inv_sqrt_dict.keys()):
         col = colors[idx % len(colors)]
         ls = linestyles[(idx // len(colors)) % len(linestyles)]
-        ax.plot(baseline_dict[filt], fss_inv_sqrt_dict[filt], label=filt, 
+        ax.plot(baseline_dict[filt], fss_inv_sqrt_dict[filt], label=filt,
                 color=col, linestyle=ls, linewidth=2)
     
     ax.set_xlabel(r"$B$ (m)", fontsize=12)
     ax.set_ylabel(r"$\sigma_s$", fontsize=12)
-    ax.set_title(f"{star_name}", 
+    ax.set_title(f"{star_name}",
                 fontsize=14, fontweight='bold')
     ax.grid(True, which="both", ls=":", alpha=0.6)
     ax.legend(title="Filter", loc="best", fontsize=10)
@@ -795,6 +802,14 @@ def plot_fss_inverse_sqrt(
     #     ax.set_ylim(1e-2, 1e3)
     ax.set_xscale('log')
     ax.set_xlim(10,1500)
+
+    # Add horizontal dashed lines based on star name using H band color
+    if star_name == "HD 360":
+        ax.axhline(0.015/0.906, color=h_color, linestyle='--', linewidth=1.5, alpha=0.7,
+                   label='0.15/0.906')
+    elif star_name == "HD 17652":
+        ax.axhline(0.014/1.835, color=h_color, linestyle='--', linewidth=1.5, alpha=0.7,
+                   label='0.014/1.835')
 
     plt.tight_layout()
     plt.savefig(save_as, bbox_inches="tight")
