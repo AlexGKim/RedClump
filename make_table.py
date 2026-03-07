@@ -59,7 +59,7 @@ def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
         ['HD 220572', 1.092, 0.012, 5.605, 0.020, 3.224, 0.003, 5.787, 0.027],
         ['HD 204381', 1.524, 0.015, 4.501, 0.008, 2.426, 0.001, 5.413, 0.033]
     ]
-    
+    print(len(data))
     # Define column names
     columns = ['Star', 'LD', 'σLD', 'V', 'σV', 'K', 'E(B-V)', 'Sv', 'σSv']
     
@@ -69,6 +69,7 @@ def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
 
     # List of HD stars from your table
     hd_stars = df["Star"].tolist()
+    print(len(hd_stars))
 
     # Configure SIMBAD to return Right Ascension and Declination.
     Simbad.add_votable_fields('ra', 'dec')
@@ -80,7 +81,7 @@ def create_and_save_dataframe_gaia(filename='extended_data_table_2.csv'):
     df_simbad = simbad_result.to_pandas()
 
     print("SIMBAD results (first few rows):")
-    print(df_simbad.head())
+    print(df_simbad)
 
     # Prepare a list to store Gaia photometry and coordinates results.
     gaia_results_list = []
@@ -239,7 +240,7 @@ def create_and_save_flux_density_table(filename='extended_data_table_2.csv', out
 if __name__ == "__main__":
 
     # Create and save the DataFrame
-    # extended_table = create_and_save_dataframe_gaia()
+    extended_table = create_and_save_dataframe_gaia()
 
     # Example: Create flux density table
     # print("\n" + "="*50)
@@ -247,10 +248,10 @@ if __name__ == "__main__":
     # print("="*50)
     # flux_table = create_and_save_flux_density_table()
     
-    # Create baseline tables
-    print("\n" + "="*50)
-    print("Creating baseline tables...")
-    print("="*50)
-    create_and_save_baseline_tables()
+    # # Create baseline tables
+    # print("\n" + "="*50)
+    # print("Creating baseline tables...")
+    # print("="*50)
+    # create_and_save_baseline_tables()
 
 
