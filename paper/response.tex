@@ -1,0 +1,150 @@
+\documentclass[12pt]{article}
+\usepackage{hyperref, amsmath, amssymb, xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{natbib}
+\newcommand{\mnras}{MNRAS}
+\newcommand{\apj}{ApJ}
+\newcommand{\aap}{A\&A}
+\newcommand{\apjl}{ApJL}
+\newcommand{\aj}{AJ}
+
+\newcommand{\referee}[1]{\medskip\noindent\textit{\textcolor{gray}{Referee: #1}}\medskip}
+\newcommand{\response}[1]{\noindent #1\medskip}
+
+\begin{document}
+
+\noindent Dear Referee,
+
+\medskip
+
+We thank you for your careful reading and constructive comments. We have revised the
+manuscript to address every point raised. Changes in the manuscript are marked using the
+AASTeX \texttt{trackchanges} commands (\verb|\added|, \verb|\deleted|, \verb|\replaced|)
+and are highlighted in the compiled PDF.
+
+\bigskip
+\hrule
+\bigskip
+
+%% -----------------------------------------------------------------------
+\referee{The manuscript is well organized and straightforward, although there is
+a problem on page 3, lines 86--101, and lines 60--85 appear to be nearly identical
+text. This should be consolidated into a single paragraph.}
+
+\response{We agree. Lines 86--101 were an inadvertent duplication of the earlier
+paragraph (lines 60--85) describing the comparison between SATLAS and PHOENIX stellar
+atmosphere models. The duplicate paragraph has been deleted; only the first, more
+complete version is retained.}
+
+\bigskip
+%% -----------------------------------------------------------------------
+\referee{Lines 151--156, timing synchronization and baseline measurements are generally
+not the leading limitation of SII right now. Timing is easily synchronized to better
+than 100~psec over baselines up to 10's of km through White Rabbit chipset, and the
+telescope separations can be measured to better than 1~cm using inexpensive RTK systems.
+The leading limitations in the use of IACT telescopes for SII are: (1)~poor PSF/large
+pixels; (2)~fast focal-ratio optics causing interference filter bandpass shifts with
+incidence angle; (3)~the finite size of the mirrors; (4)~combining extended measurements
+taken over multiple days.}
+
+\response{We thank the referee for this important correction based on hands-on experience
+with IACT-based SII systems. We have revised the relevant paragraph to remove clock
+synchronization and baseline determination from the list of leading limitations---noting
+instead that White Rabbit electronics achieves $<100$~ps inter-telescope synchronization
+and RTK-GPS achieves $<1$~cm baseline determination, so neither is a current bottleneck.
+We have replaced these with the referee's more accurate characterization of the four
+leading IACT SII limitations. We offer the following specific remarks on each:
+
+\medskip
+\noindent\textbf{(1) Poor PSF / large pixels.}
+We agree that the large IACT camera pixels dilute stellar flux into the sky background,
+biasing the $g^{(2)}$ function, and that this is a genuine leading limitation.
+We note, however, that the recent H.E.S.S.\ and MAGIC SII campaigns have demonstrated
+that external reimaging optics mounted at the IACT focal plane effectively bypass the
+native camera, substantially reducing the sky-background contamination without requiring
+optical-quality primary mirrors
+\citep{2024MNRAS.529.4387A,2024MNRAS.52712243Z,2025MNRAS.537.2334V}.
+We have updated the text to acknowledge both the limitation and this practical mitigation.
+
+\medskip
+\noindent\textbf{(2) Filter bandpass shift with incidence angle.}
+We agree this is a significant concern, especially for the CTAO SSTs which use
+Schwarzschild--Couder dual-mirror optics with a very fast effective focal ratio
+($f/\sim 0.5$).  For $f/0.5$ the maximum convergent beam half-angle at the focal plane
+is $\arctan(D/2f) = \arctan(1) \approx 45^\circ$; photons from the outer annulus of the
+primary arrive at the filter at $\sim 45^\circ$ from normal, producing a bandpass blueshift
+of $\sim 7\%$ (for a filter effective index $n_\mathrm{eff} \approx 1.9$).
+This smears the effective passband across the aperture and can increase the background
+contribution from out-of-band photons near the mirror edge, as the referee notes.
+We have added text to this effect.
+We note that the referee's cited upper bound of $65^\circ$ would require $f/0.23$ optics,
+which is beyond the range of practical optical systems; we believe the concern is
+well-described by the $\sim 45^\circ$ maximum arising from the nominal $f/0.5$ design.
+This does not alter the referee's substantive point, and we have not emphasized this
+difference in the paper text.
+
+\medskip
+\noindent\textbf{(3) Finite mirror size.}
+We agree that the finite mirror diameter distorts the visibility function when the first
+visibility null falls within the baseline spanned by the mirror, as for large
+($\gtrsim 3$--4~mas) stars with 10~m-class telescopes.
+For our specific Red Clump science targets ($\theta \approx 1$--2~mas) and the CTAO SSTs
+(4~m primary diameter), the first null of $|\mathcal{V}|^2$ in the $H$-band falls at
+baselines of $\sim 150$--300~m, so the visibility variation across a single 4~m mirror is
+of order $(4/200)^2 \sim 0.04\%$---negligible for our application.
+We have acknowledged the referee's concern in the text and noted this mitigation for our
+specific targets.
+
+\medskip
+\noindent\textbf{(4) Multi-night background systematics.}
+We agree that combining data from many sessions spread over days or months can allow
+night-to-night background variations to dominate the noise budget, making the effective
+S/N scale worse than $1/\sqrt{T}$.  We have added a sentence noting that this is precisely
+why simultaneous multi-baseline arrays such as the CTAO (666 independent baselines from 37
+SSTs) are advantageous: the required signal can be accumulated within a single observing
+session, avoiding the multi-night systematics problem entirely.}
+
+\bigskip
+%% -----------------------------------------------------------------------
+\referee{Line 210: ``generated my'' $\to$ ``generated by''.}
+
+\response{Corrected.}
+
+\bigskip
+%% -----------------------------------------------------------------------
+\referee{Line 234: $T_\mathrm{obs} = 1$~hour. This differs from the figure and table
+captions, which state $T_\mathrm{obs} = 2$~hours.}
+
+\response{The figure and table captions give the correct value.
+The text stated $T_\mathrm{obs}=1$~h due to an editing error; we have corrected it to
+$T_\mathrm{obs}=2$~h to match the captions throughout.}
+
+\bigskip
+%% -----------------------------------------------------------------------
+\referee{Line 307: having a larger array of telescopes operating simultaneously is
+substantially better than having fewer telescopes operate for longer. This is the issue
+of controlling systematic shifts in background light over many nights, weeks, or months.}
+
+\response{We agree, and this point reinforces our argument for the CTAO multiplex
+advantage.  We have added an explicit sentence at the relevant location noting that
+simultaneous multi-baseline observations are preferred over extended single-pair
+campaigns specifically because night-to-night background variations can prevent the
+S/N from scaling as $1/\sqrt{T}$ in the latter case.}
+
+\bigskip
+\hrule
+\bigskip
+
+\noindent We believe these revisions fully address the referee's concerns and strengthen
+the paper. We appreciate the referee's expert knowledge of practical IACT-SII limitations
+and thank them for improving the accuracy of the manuscript.
+
+\bigskip
+\noindent Sincerely,
+
+\noindent Alex G.\ Kim and Robin Kaiser
+
+\bibliographystyle{aasjournalv7}
+\bibliography{main}
+
+\end{document}

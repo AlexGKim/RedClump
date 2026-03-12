@@ -21,7 +21,7 @@
 %  Add 'draft' option to mark overfull boxes with black boxes
 %  Add 'showkeys' option to make keywords appear
 % \documentclass[aps,prd,groupedaddress]{revtex4-2}
-\documentclass[linenumbers,trackchanges]{aastex701}
+\documentclass[linenumbers,trackchanges,margins]{aastex701}
 
 %\documentclass[aps,prl,preprint,superscriptaddress]{revtex4-2}
 %\documentclass[aps,prl,reprint,groupedaddress]{revtex4-2}
@@ -151,13 +151,7 @@ PHOENIX is an alternative stellar atmosphere code that is inherently spherically
 For our analysis, the PHOENIX intensity profile and squared visibility for the best-matched grid points are plotted alongside those of SATLAS in Figure~\ref{fig:Intensity} \citep{2023A&A...674A..63C}. By visual inspection, the only discernible difference appears in the intensity at the outer edge of the stellar disk. The difference between the squared visibilities is $\lesssim 0.006$ across both the plotted range and the spatial frequency range where the HD~360 data are fit. These differences are significantly smaller than the measurement uncertainties, demonstrating consistency between SATLAS and PHOENIX models for angular diameter determination of HD~360.
 
 
-The angular-size measurement depends on the model of the stellar intensity profile. SATLAS modifies the plane-parallel stellar atmosphere program ATLAS to treat spherically extended geometry. ATLAS calculates line blanketing using opacity distribution functions, which average the contributions of different atomic and molecular species. \citet{2018A&A...616A..68G} estimate the model error contribution to the angular size by considering intensity profiles at neighboring temperature, effective gravity, and stellar mass grid points.
-PHOENIX is an alternative stellar atmosphere model that is inherently spherically symmetric and calculates opacities directly from a comprehensive library of 500,000 spectral lines \citep{2013A&A...553A...6H}.
-\citet{2004A&A...413..711W} compared PHOENIX and tbe non-spherical ATLAS limb darkening models for the M4 giant star $\psi$~Phoenicis  in the $K$-band 
-with the VLTI , finding to $\sim $1.5\% differences in
-their resulting diameter values.  For the F5 star Procyon no differences are found in the $K$ band but
-there is a significantly wide range of angular diameters at visible wavelengths (500~nm) in data from the Mark~III interferometer \citep{2005ApJ...633..424A}.
-The PHOENIX intensity profile and squared visibility for the best-matched grid points are plotted with those of SATLAS in Figure~\ref{fig:Intensity} \citep{2023A&A...674A..63C}. By visual inspection, the only discernible difference is in the intensity at the outer edge of the stellar disk. The difference between the squared visibilities is $\lesssim 0.006$ over the range of the plot and $\lesssim 0.006$ over the spatial frequency range where the HD~360 data are fit. These differences are significantly smaller than the measurement error bars, demonstrating consistency between SATLAS and PHOENIX models for this application.
+%% DELETED (duplicate paragraph per referee): second SATLAS/PHOENIX comparison paragraph removed.
 
 Despite the apparent robustness of the angular size measurements from PIONIER, we suggest that there is  value in validating them with complementary interferometric measurements at multiple wavelengths that sample both the first zero and secondary maxima of the visibility function. For any given photometric band, the first zero and secondary maxima of the visibility curve provide a robust measure of the stellar angular diameter that are largely insensitive to model-dependent limb darkening effects, as demonstrated in the comparison between PHOENIX and ATLAS models shown in Figure~\ref{fig:Intensity}. The wavelength-dependence of the visibility amplitude, zero positions, and secondary maxima positions provides independent cross-checks of the angular size determination across the electromagnetic spectrum, as illustrated in Figure~\ref{fig:visibility_satlas}, which plots the squared visibility in $BVRIHK$ photometric bands for the intensity profiles calculated by SATLAS.
 Such model-independent validation is relevant because the fitting accuracy of both ATLAS and PHOENIX stellar atmosphere models degrades significantly for G and K-type stars, including Red Clump stars, due to increased molecular opacity and convective effects that are difficult to model accurately \citep{2004AJ....128..829B}.
@@ -184,9 +178,15 @@ and deployments at 1m to 2m class telescopes
 
 An advantage of intensity interferometry over amplitude interferometry is its intrinsic independence from electromagnetic phase information. Unlike amplitude interferometry, which measures the coherent superposition of light waves and therefore requires exquisite phase stability, intensity interferometry measures second-order correlations in photon arrival times.
 While atmospheric turbulence, mechanical vibrations, and optical path instabilities do affect arrival times, they are currently dwarfed by the dominant contribution of jitter in current detectors, and thus do not significantly contribute to the systematic error budget of intensity interferometry.
-The technique does not require combining light coherently, eliminating systematic errors associated with beam combination optics, polarization mismatch, and the complex calibration chains needed to extract visibility amplitudes and closure phases. However, intensity interferometry introduces its own set of systematic challenges. The primary sources of systematic error include: clock synchronization uncertainties between the focal positions of widely separated telescopes, which directly affect the measured temporal correlations; baseline determination errors, as precise knowledge of telescope separations is essential for converting measured correlations to angular scales; the finite extent of the individual telescope mirrors,
-which is not accounted for in the visibility calculation; 
-background noise and accidental coincidences, which can bias correlation measurements, particularly for faint sources.
+The technique does not require combining light coherently, eliminating systematic errors associated with beam combination optics, polarization mismatch, and the complex calibration chains needed to extract visibility amplitudes and closure phases. However, intensity interferometry introduces its own set of systematic challenges.
+\added{Clock synchronization between telescopes, achievable to better than 100~ps using, e.g., White Rabbit electronics, and baseline determination, achievable to better than 1~cm with Real-Time Kinematic GPS systems, are no longer leading limitations.
+The primary sources of systematic error in current IACT-based implementations are the following.
+(1)~\textit{Poor point-spread function and large camera pixels}: IACT cameras are designed for air-shower imaging and have large pixels, causing the stellar signal to be measured simultaneously with sky background light and biasing the $g^{(2)}$ function.
+In practice, the H.E.S.S.\ and MAGIC SII programs have mitigated this by mounting dedicated external reimaging optics at the IACT focal plane, bypassing the native camera \citep{2024MNRAS.529.4387A,2024MNRAS.52712243Z,2025MNRAS.537.2334V}.
+(2)~\textit{Filter bandpass shift with incidence angle}: the fast focal ratios of IACT optics ($f/\sim 0.5$ for the CTAO SSTs, which use a Schwarzschild--Couder dual-mirror design) mean that photons from different parts of the primary mirror converge to the focal plane at angles up to $\sim 45^\circ$ from normal, shifting interference filter passbands by several percent across the aperture and increasing the background from out-of-band photons at the mirror edges; this limits the minimum usable bandwidth at optical wavelengths.
+(3)~\textit{Finite mirror size}: when the first null of the visibility function falls within the baseline spanned by a single mirror, the measured zero-baseline $g^{(2)}$ is distorted; this is most significant for large ($\gtrsim 3$--4~mas) stars observed with 10~m-class IACT mirrors.
+For our Red Clump targets ($\theta \approx 1$--2~mas), the first $H$-band null falls at $\sim 150$--300~m, so the visibility variation across the 4.3~m CTAO SST primary is $\lesssim 0.04\%$---negligible for our application.
+(4)~\textit{Background noise and multi-night systematics}: accidental coincidences bias the correlation function for faint sources, and night-to-night variations in sky brightness can cause systematic drifts in the $g^{(2)}$ baseline when observations are combined across many sessions, degrading the S/N below the $1/\sqrt{T}$ expectation.}
 
 The impact of systematic errors on squared visibility measurements varies  depending on the baseline regime. As evident from Figure 2, measurements obtained along the steeply declining slopes of the visibility function are highly sensitive to systematics that affect the amplitude, since a systematic change in the amplitude or slope of $|\mathcal{V}^2|$ translates to a change in the baseline-dependent slope upon which the stellar diameter determination depends. Conversely, measurements obtained near the local maxima of  $|\mathcal{V}^2|$—such as at zero baseline or at baselines that
 cover the secondary peaks arising from the limb-darkened stellar disk—exhibit substantially reduced sensitivity to distortions caused by systematics. At these critical points, the gradient $\partial |\mathcal{V}^2|/\partial u$ approaches zero, making the measured baseline position of the extrema less sensitive to calibration errors. This behavior is analogous to measurements of the Baryon Acoustic Oscillation (BAO) peak in the cosmic matter power spectrum, where the characteristic scale of the acoustic feature can be robustly determined even in the presence of errors that can affect the overall shape. This suggests an observational strategy where multiple baselines sampling the local extrema of the visibility function could provide internally consistent diameter estimates that are less susceptible to systematic contamination than measurements relying solely on the steep visibility slope.
@@ -236,7 +236,7 @@ of the unit top-hat function squared.
 The first equation is from the van Cittert-Zernike theorem and the second is the Siegert relation.  $\mathcal{V}(u)$ is often referred to as the normalized visibility.
 
 
-The measurement in intensity interferometry is the correlation between photon arrival times at two detector positions.  It is generated my making the normalized histogram of the difference in photon arrival times at the two telescopes.  The expected signal for
+The measurement in intensity interferometry is the correlation between photon arrival times at two detector positions.  It is generated \added[my]{by} making the normalized histogram of the difference in photon arrival times at the two telescopes.  The expected signal for
 the source is given by $g^{(2)}$ in Eq.~\ref{eq:g2}.   The $|g^{(1)}(\Delta t)|^2$ term contributes to the height and shape of the histogram, while $|\mathcal{V}(u)|^2$ contributes to the height. 
 The measurement is only possible because of the Hanbury Brown and
 Twiss effect, i.e., $|g^{(1)}(\Delta t)|^2 \ne 0$.
@@ -273,7 +273,7 @@ We evaluate and present in Table~\ref{tab:inverse_noise} inverse noises for obse
 4-m telescopes in several passbands.
 The instrumental parameters are: a photon-counting detector with 42.4~ps FWHM timing jitter
 \cite{10.1117/1.JATIS.11.3.035005} (corresponding to $\sigma_t=16.6$~ps standard deviation),
-an overall throughput of 0.3, and an integration time of $T_{obs}=1$~h.
+an overall throughput of 0.3, and an integration time of $T_{obs}=\added[1]{2}$~h.
 The $\sigma_t \Delta \omega \gg 1$ condition translates to a condition on the bandwidth,
 $\Delta \nu \gg 9.6$~GHz in frequency or $\Delta \lambda \gg 0.32$\AA\ at 1 micron wavelength.
 Two stars, HD~360 and HD~17652, are presented as representative examples spanning the faint/small and bright/large extremes of the sample. 
@@ -389,7 +389,7 @@ The most straightforward is to dedicate the telescope time for the longer exposu
 one could exploit the multiplex advantage of observing multiple bandpasses simultaneously---for example, the requisite signal could be obtained by increasing the effective exposure time by dispersing the light dispersed onto 4 to 100 channel SPAD arrays (ensuring that the $\sigma_t \Delta \omega \gg 1$ condition holds)
 and increasing the exposure time to make up for
 what could not be gained through multiplexing.
-Interferometry with simultaneous observation of $N$ telescopes offers ${N \choose 2}$ unique baselines. For $N=37$ telescopes \citep[the number of Small-Sized Telescopes planned for the Cherenkov Telescope Array Observatory-South][]{2022SPIE12182E..0KT}, this yields an effective increase by a factor of 666 to the nominal exposure time. 
+Interferometry with simultaneous observation of $N$ telescopes offers ${N \choose 2}$ unique baselines. For $N=37$ telescopes \citep[the number of Small-Sized Telescopes planned for the Cherenkov Telescope Array Observatory-South][]{2022SPIE12182E..0KT}, this yields an effective increase by a factor of 666 to the nominal exposure time. \added{Crucially, simultaneous multi-baseline observations are preferable to extending single-pair integrations across multiple observing sessions: night-to-night variations in sky background can cause systematic drifts in the $g^{(2)}$ baseline that prevent the signal-to-noise ratio from scaling as $1/\sqrt{T}$ when data are combined over many nights \citep{2024MNRAS.529.4387A}. The 666 simultaneous CTAO baselines therefore offer a practical path to the required precision within a single session, avoiding this multi-night systematic entirely.}
 
 Validation
 of the \citet{2019Natur.567..200P} result does not require re-measurement of
